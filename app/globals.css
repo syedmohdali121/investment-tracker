@@ -1,26 +1,67 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+@theme {
+  --color-background: #0b0b12;
+  --color-foreground: #f4f4f8;
+  --color-muted: #8a8a9b;
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
+@layer base {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    color-scheme: dark;
+  }
+
+  html.light {
+    color-scheme: light;
+    --color-background: #f7f7fb;
+    --color-foreground: #0b0b12;
+    --color-muted: #5b6072;
+  }
+
+  body {
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.18), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(16, 185, 129, 0.15), transparent 60%),
+      var(--color-background);
+    color: var(--color-foreground);
+    min-height: 100vh;
+  }
+
+  html.light body {
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
+      radial-gradient(900px 500px at 110% 10%, rgba(16, 185, 129, 0.10), transparent 60%),
+      var(--color-background);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+@utility text-muted {
+  color: var(--color-muted);
+}
+
+@utility input {
+  display: block;
+  width: 100%;
+  height: 2.5rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(255 255 255 / 0.1);
+  background: rgb(255 255 255 / 0.03);
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+  font-size: 0.875rem;
+  color: var(--color-foreground);
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.input:focus {
+  border-color: rgb(99 102 241 / 0.6);
+  box-shadow: 0 0 0 3px rgb(99 102 241 / 0.15);
+}
+
+html.light .input {
+  border-color: rgb(0 0 0 / 0.1);
+  background: rgb(255 255 255 / 0.8);
 }
