@@ -211,14 +211,23 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
   if (cached && cached.expires > now) return cached.value;
 
   // 7-day lookback @ 5m guarantees we capture the most recent session
-  // even over long weekends / holidays.
+  // even over long weekends / holidays. includePrePost=false trims
+  // pre-market / after-hours bars so the sparkline reflects only the
+  // regular trading session.
   const period1 = new Date(now - 7 * 24 * 60 * 60 * 1000);
   try {
     const result = (await yahooFinance.chart(symbol, {
       period1,
       interval: "5m",
+      includePrePost: false,
     })) as unknown as {
-      meta?: { currency?: string; chartPreviousClose?: number };
+      meta?: {
+        currency?: string;
+        chartPreviousClose?: number;
+        currentTradingPeriod?: {
+          regular?: { start?: number; end?: number };
+        };
+      };
       quotes?: Array<{ date: Date | string; close: number | null }>;
     };
     const all: HistoryPoint[] = [];
@@ -239,6 +248,16 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
       const lastKey = dayKey(all[all.length - 1].t);
       sessionDate = lastKey;
       points = all.filter((p) => dayKey(p.t) === lastKey);
+      // Belt-and-braces trim to the regular trading window Yahoo reports,
+      // so any lingering pre/post market bars are dropped.
+      const reg = result?.meta?.currentTradingPeriod?.regular;
+      if (reg && typeof reg.start === "number" && typeof reg.end === "number") {
+        // Yahoo reports seconds; convert to ms.
+        const startMs = reg.start * 1000;
+        const endMs = reg.end * 1000;
+        const trimmed = points.filter((p) => p.t >= startMs && p.t <= endMs);
+        if (trimmed.length > 0) points = trimmed;
+      }
       // The prior session's last close — this is the correct baseline for
       // today-vs-yesterday %. Yahoo's meta.chartPreviousClose refers to the
       // close before the entire chart window (7d ago), which is wrong for us.

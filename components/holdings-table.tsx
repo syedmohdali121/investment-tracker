@@ -25,8 +25,8 @@ import {
 import {
   formatCurrency,
   formatCurrencySmart,
-  formatNumber,
   formatPct,
+  formatQuantity,
 } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { IntradaySeries, useIntraday } from "@/app/providers";
@@ -213,7 +213,7 @@ function CategoryBlock({
         </span>
       </div>
       <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-white/5 bg-white/[0.02]">
-        <div className="hidden grid-cols-[32px_minmax(140px,1.2fr)_80px_100px_150px_100px_110px_170px] gap-x-3 border-b border-white/5 px-4 py-2 text-left text-xs uppercase tracking-wider text-muted md:grid md:min-w-[940px]">
+        <div className="hidden grid-cols-[28px_140px_70px_90px_130px_95px_100px_120px] gap-x-2 border-b border-white/5 px-3 py-2 text-left text-xs uppercase tracking-wider text-muted md:grid md:min-w-[793px]">
           <span />
           <span>Name</span>
           <span className="text-right">Qty</span>
@@ -235,8 +235,6 @@ function CategoryBlock({
               key={inv.id}
               inv={inv}
               prices={prices}
-              usdInr={usdInr}
-              display={display}
               intraday={isStock(inv) ? intradayMap[inv.symbol] : undefined}
             />
           ))}
@@ -249,23 +247,29 @@ function CategoryBlock({
 function Row({
   inv,
   prices,
-  usdInr,
-  display,
   intraday,
 }: {
   inv: Investment;
   prices: PriceMap;
-  usdInr: number;
-  display: Currency;
   intraday?: IntradaySeries;
 }) {
   const controls = useDragControls();
   const nv = nativeValue(inv, prices);
-  const value = valueIn(inv, prices, usdInr, display);
-  const cost = costIn(inv, usdInr, display);
+  const stock = isStock(inv);
+
+  // Per-row figures always display in the investment's native currency so
+  // toggling the dashboard display currency (INR ↔ USD) doesn't distort
+  // individual holdings. Aggregates (net worth, category totals, group
+  // subtotals) still honor the display currency.
+  const rowCurrency: Currency = nv.currency;
+  const value = nv.value;
+  const cost = stock
+    ? inv.avgCost * inv.quantity
+    : inv.principal !== undefined
+      ? inv.principal
+      : null;
   const pl = cost !== null ? value - cost : null;
   const plPct = cost && cost > 0 && pl !== null ? (pl / cost) * 100 : null;
-  const stock = isStock(inv);
 
   // Session performance (current day, or last open day if market closed).
   // Baseline priority: (1) quote.previousClose (authoritative regular-session
@@ -304,12 +308,34 @@ function Row({
     }
   }
 
+  // Build sparkline points: append the live quote price as a synthetic
+  // trailing point so the line tracks real-time movement between Yahoo's
+  // 5-minute bars. Skip if the session is stale (market closed / last-session
+  // data) — in that case the last bar is already the final close.
+  const liveQuote = stock ? prices[inv.symbol]?.price : undefined;
+  const basePoints = intraday?.points ?? [];
+  const sparkPoints =
+    stock && !sessionStale && typeof liveQuote === "number" && basePoints.length > 0
+      ? (() => {
+          const last = basePoints[basePoints.length - 1];
+          // Replace the last bar if it's within the last 5 minutes (live tick),
+          // otherwise append a new point at "now".
+          if (Date.now() - last.t < 5 * 60 * 1000) {
+            return [
+              ...basePoints.slice(0, -1),
+              { t: Date.now(), close: liveQuote },
+            ];
+          }
+          return [...basePoints, { t: Date.now(), close: liveQuote }];
+        })()
+      : basePoints;
+
   return (
     <Reorder.Item
       value={inv}
       dragListener={false}
       dragControls={controls}
-      className="cursor-default px-4 py-3 text-sm hover:bg-white/[0.03] md:grid md:min-w-[940px] md:grid-cols-[32px_minmax(140px,1.2fr)_80px_100px_150px_100px_110px_170px] md:items-center md:gap-x-3"
+      className="cursor-default px-3 py-3 text-sm hover:bg-white/[0.03] md:grid md:min-w-[793px] md:grid-cols-[28px_140px_70px_90px_130px_95px_100px_120px] md:items-center md:gap-x-2"
       whileDrag={{
         scale: 1.01,
         boxShadow:
@@ -344,9 +370,9 @@ function Row({
           <div className="text-right">
             <div
               className="font-semibold tabular-nums"
-              title={formatCurrency(value, display)}
+              title={formatCurrency(value, rowCurrency)}
             >
-              {formatCurrencySmart(value, display)}
+              {formatCurrencySmart(value, rowCurrency)}
             </div>
             {pl !== null && plPct !== null ? (
               <div
@@ -354,10 +380,10 @@ function Row({
                   "mt-0.5 text-xs font-semibold tabular-nums",
                   pl >= 0 ? "text-emerald-400" : "text-rose-400",
                 )}
-                title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), display)}`}
+                title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), rowCurrency)}`}
               >
                 {pl >= 0 ? "+" : "−"}
-                {formatCurrencySmart(Math.abs(pl), display)}{" "}
+                {formatCurrencySmart(Math.abs(pl), rowCurrency, 1000)}{" "}
                 <span className="text-muted">({formatPct(plPct)})</span>
               </div>
             ) : null}
@@ -370,9 +396,9 @@ function Row({
             </span>
             <span className="truncate text-xs tabular-nums">
               {stock && nv.unitPrice !== undefined
-                ? `${formatNumber(inv.quantity, 4)} · ${formatCurrency(nv.unitPrice, nv.currency)}`
+                ? `${formatQuantity(inv.quantity)} · ${formatCurrency(nv.unitPrice, nv.currency)}`
                 : stock
-                  ? `${formatNumber(inv.quantity, 4)}`
+                  ? `${formatQuantity(inv.quantity)}`
                   : inv.interestRate !== undefined
                     ? `${inv.interestRate}% p.a.`
                     : "—"}
@@ -381,7 +407,7 @@ function Row({
           {stock && (
             <div className="flex flex-col items-end gap-0.5">
               <Sparkline
-                points={intraday?.points ?? []}
+                points={sparkPoints}
                 prevClose={
                   prices[inv.symbol]?.previousClose ??
                   intraday?.prevClose ??
@@ -426,7 +452,7 @@ function Row({
         </span>
       </div>
       <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
-        {stock ? formatNumber(inv.quantity, 4) : "—"}
+        {stock ? formatQuantity(inv.quantity) : "—"}
       </span>
       <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
         {stock && nv.unitPrice !== undefined
@@ -441,7 +467,7 @@ function Row({
         {stock ? (
           <>
             <Sparkline
-              points={intraday?.points ?? []}
+              points={sparkPoints}
               prevClose={
                 prices[inv.symbol]?.previousClose ??
                 intraday?.prevClose ??
@@ -501,9 +527,9 @@ function Row({
       </span>
       <span
         className="hidden whitespace-nowrap text-right font-semibold tabular-nums md:inline"
-        title={formatCurrency(value, display)}
+        title={formatCurrency(value, rowCurrency)}
       >
-        {formatCurrencySmart(value, display)}
+        {formatCurrencySmart(value, rowCurrency)}
       </span>
       <span className="hidden whitespace-nowrap text-right md:inline">
         {pl === null || plPct === null ? (
@@ -514,14 +540,14 @@ function Row({
               "inline-flex items-center gap-1 text-xs font-semibold tabular-nums",
               pl >= 0 ? "text-emerald-400" : "text-rose-400",
             )}
-            title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), display)}`}
+            title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), rowCurrency)}`}
           >
             {pl >= 0 ? (
               <ArrowUpRight className="h-3.5 w-3.5" />
             ) : (
               <ArrowDownRight className="h-3.5 w-3.5" />
             )}
-            <span>{formatCurrencySmart(Math.abs(pl), display)}</span>
+            <span>{formatCurrencySmart(Math.abs(pl), rowCurrency, 1000)}</span>
             <span className="text-muted">({formatPct(plPct)})</span>
           </span>
         )}
