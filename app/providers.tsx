@@ -9,6 +9,9 @@ import {
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import type { Currency, Investment } from "@/lib/types";
+import { SettingsProvider, useSettings } from "./settings-context";
+import { CommandPaletteProvider } from "@/components/command-palette";
+import { ShortcutsProvider } from "@/components/shortcuts-provider";
 
 type CurrencyCtx = {
   currency: Currency;
@@ -24,14 +27,28 @@ export function useCurrency() {
 }
 
 function CurrencyProvider({ children }: { children: React.ReactNode }) {
-  const [currency, setCurrencyState] = useState<Currency>("INR");
+  const { settings } = useSettings();
+  const [currency, setCurrencyState] = useState<Currency>(
+    settings.defaultCurrency,
+  );
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem("display-currency");
     if (saved === "USD" || saved === "INR") setCurrencyState(saved);
+    else setCurrencyState(settings.defaultCurrency);
     setHydrated(true);
+    // Only run on mount; future changes to defaultCurrency handled via effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // When the user changes the default currency in Settings and has not
+  // explicitly overridden it in this session, follow the new default.
+  useEffect(() => {
+    if (!hydrated) return;
+    const override = localStorage.getItem("display-currency");
+    if (!override) setCurrencyState(settings.defaultCurrency);
+  }, [settings.defaultCurrency, hydrated]);
 
   const setCurrency = (c: Currency) => {
     setCurrencyState(c);
@@ -67,10 +84,14 @@ export function Providers({ children }: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={client}>
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-        <CurrencyProvider>
-          {children}
-          <Toaster richColors position="top-right" theme="system" />
-        </CurrencyProvider>
+        <SettingsProvider>
+          <CurrencyProvider>
+            <CommandPaletteProvider>
+              <ShortcutsProvider>{children}</ShortcutsProvider>
+            </CommandPaletteProvider>
+            <Toaster richColors position="top-right" theme="system" />
+          </CurrencyProvider>
+        </SettingsProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );
@@ -91,6 +112,8 @@ export function useInvestments() {
 
 export function usePrices(symbols: string[]) {
   const key = [...symbols].sort().join(",");
+  const { settings } = useSettings();
+  const interval = settings.refreshInterval;
   return useQuery<{
     quotes: Array<{
       symbol: string;
@@ -105,7 +128,7 @@ export function usePrices(symbols: string[]) {
   }>({
     queryKey: ["quotes", key],
     enabled: symbols.length > 0,
-    refetchInterval: 60_000,
+    refetchInterval: interval > 0 ? interval : false,
     queryFn: async () => {
       const res = await fetch(`/api/quotes?symbols=${encodeURIComponent(key)}`);
       if (!res.ok) throw new Error("Failed to load quotes");
@@ -115,9 +138,11 @@ export function usePrices(symbols: string[]) {
 }
 
 export function useFx() {
+  const { settings } = useSettings();
+  const interval = settings.refreshInterval;
   return useQuery<{ usdInr: number; asOf: string }>({
     queryKey: ["fx"],
-    refetchInterval: 60_000,
+    refetchInterval: interval > 0 ? interval : false,
     queryFn: async () => {
       const res = await fetch("/api/fx");
       if (!res.ok) throw new Error("Failed to load FX");
@@ -139,11 +164,13 @@ export type IntradaySeries = {
 
 export function useIntraday(symbols: string[]) {
   const key = [...symbols].sort().join(",");
+  const { settings } = useSettings();
+  const interval = settings.refreshInterval;
   return useQuery<{ series: IntradaySeries[]; asOf: string }>({
     queryKey: ["intraday", key],
     enabled: symbols.length > 0,
-    staleTime: 60_000,
-    refetchInterval: 60_000,
+    staleTime: Math.max(interval, 60_000),
+    refetchInterval: interval > 0 ? interval : false,
     queryFn: async () => {
       const res = await fetch(
         `/api/intraday?symbols=${encodeURIComponent(key)}`,

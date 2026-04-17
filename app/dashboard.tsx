@@ -30,6 +30,7 @@ import { Card } from "@/components/card";
 import { HoldingsTable } from "@/components/holdings-table";
 import { AnimatedNumber } from "@/components/animated-number";
 import { StockGrowthPane } from "@/components/stock-growth-pane";
+import { CardSkeleton, PaneSkeleton, RowsSkeleton } from "@/components/skeletons";
 import { CATEGORY_META, Investment, StockInvestment, isStock } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useQueryClient } from "@tanstack/react-query";
@@ -344,13 +345,18 @@ function EmptyState() {
 
 function LoadingState() {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-      {Array.from({ length: 4 }).map((_, i) => (
-        <div
-          key={i}
-          className="h-28 animate-pulse rounded-2xl border border-white/5 bg-white/[0.03]"
-        />
-      ))}
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <CardSkeleton key={i} />
+        ))}
+      </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <PaneSkeleton height="h-56" />
+        <div className="lg:col-span-2">
+          <RowsSkeleton rows={5} />
+        </div>
+      </div>
     </div>
   );
 }

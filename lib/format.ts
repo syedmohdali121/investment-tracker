@@ -30,6 +30,25 @@ export function formatCompact(amount: number, currency: Currency): string {
   }).format(amount);
 }
 
+/**
+ * Currency formatter that automatically switches to compact notation when the
+ * value crosses a readability threshold.
+ *   - INR: ≥ ₹1,00,000 (1L) renders as "₹1.2L" / "₹3.4Cr"
+ *   - USD: ≥ $10,000     renders as "$12K" / "$1.2M"
+ * Below the threshold we keep the full grouped number so small values stay
+ * exact.
+ */
+export function formatCurrencySmart(
+  amount: number,
+  currency: Currency,
+): string {
+  if (!Number.isFinite(amount)) return "—";
+  const abs = Math.abs(amount);
+  const threshold = currency === "INR" ? 100_000 : 10_000;
+  if (abs >= threshold) return formatCompact(amount, currency);
+  return formatCurrency(amount, currency);
+}
+
 export function formatPct(value: number): string {
   if (!Number.isFinite(value)) return "—";
   const sign = value > 0 ? "+" : "";

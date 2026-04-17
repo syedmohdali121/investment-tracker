@@ -24,6 +24,7 @@ import {
 } from "@/lib/valuation";
 import {
   formatCurrency,
+  formatCurrencySmart,
   formatNumber,
   formatPct,
 } from "@/lib/format";
@@ -204,12 +205,15 @@ function CategoryBlock({
             <MarketStatusBadge category={cat} />
           )}
         </div>
-        <span className="text-sm font-semibold">
-          {formatCurrency(groupValue, display)}
+        <span
+          className="text-sm font-semibold tabular-nums"
+          title={formatCurrency(groupValue, display)}
+        >
+          {formatCurrencySmart(groupValue, display)}
         </span>
       </div>
-      <div className="overflow-hidden rounded-xl border border-white/5 bg-white/[0.02]">
-        <div className="grid grid-cols-[32px_1.2fr_0.55fr_0.85fr_160px_0.85fr_0.9fr_0.9fr] border-b border-white/5 px-4 py-2 text-left text-xs uppercase tracking-wider text-muted">
+      <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-white/5 bg-white/[0.02]">
+        <div className="hidden grid-cols-[32px_minmax(140px,1.2fr)_80px_100px_150px_100px_110px_170px] gap-x-3 border-b border-white/5 px-4 py-2 text-left text-xs uppercase tracking-wider text-muted md:grid md:min-w-[940px]">
           <span />
           <span>Name</span>
           <span className="text-right">Qty</span>
@@ -305,7 +309,7 @@ function Row({
       value={inv}
       dragListener={false}
       dragControls={controls}
-      className="grid cursor-default grid-cols-[32px_1.2fr_0.55fr_0.85fr_160px_0.85fr_0.9fr_0.9fr] items-center px-4 py-3 text-sm hover:bg-white/[0.03]"
+      className="cursor-default px-4 py-3 text-sm hover:bg-white/[0.03] md:grid md:min-w-[940px] md:grid-cols-[32px_minmax(140px,1.2fr)_80px_100px_150px_100px_110px_170px] md:items-center md:gap-x-3"
       whileDrag={{
         scale: 1.01,
         boxShadow:
@@ -314,28 +318,117 @@ function Row({
       }}
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
     >
+      {/* Mobile layout */}
+      <div className="flex flex-col gap-2 md:hidden">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              onPointerDown={(e) => controls.start(e)}
+              aria-label="Drag to reorder"
+              className="-ml-1 flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate font-medium">
+                {stock ? inv.symbol : inv.label}
+              </span>
+              <span className="truncate text-xs text-muted">
+                {stock
+                  ? `${CATEGORY_META[inv.category].short} · ${nv.currency}`
+                  : CATEGORY_META[inv.category].label}
+              </span>
+            </div>
+          </div>
+          <div className="text-right">
+            <div
+              className="font-semibold tabular-nums"
+              title={formatCurrency(value, display)}
+            >
+              {formatCurrencySmart(value, display)}
+            </div>
+            {pl !== null && plPct !== null ? (
+              <div
+                className={cn(
+                  "mt-0.5 text-xs font-semibold tabular-nums",
+                  pl >= 0 ? "text-emerald-400" : "text-rose-400",
+                )}
+                title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), display)}`}
+              >
+                {pl >= 0 ? "+" : "−"}
+                {formatCurrencySmart(Math.abs(pl), display)}{" "}
+                <span className="text-muted">({formatPct(plPct)})</span>
+              </div>
+            ) : null}
+          </div>
+        </div>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-1 flex-col">
+            <span className="text-[10px] uppercase tracking-wider text-muted">
+              {stock ? "Qty · Price" : "Type"}
+            </span>
+            <span className="truncate text-xs tabular-nums">
+              {stock && nv.unitPrice !== undefined
+                ? `${formatNumber(inv.quantity, 4)} · ${formatCurrency(nv.unitPrice, nv.currency)}`
+                : stock
+                  ? `${formatNumber(inv.quantity, 4)}`
+                  : inv.interestRate !== undefined
+                    ? `${inv.interestRate}% p.a.`
+                    : "—"}
+            </span>
+          </div>
+          {stock && (
+            <div className="flex flex-col items-end gap-0.5">
+              <Sparkline
+                points={intraday?.points ?? []}
+                prevClose={
+                  prices[inv.symbol]?.previousClose ??
+                  intraday?.prevClose ??
+                  null
+                }
+                stale={sessionStale}
+              />
+              {sessionDeltaPct !== null ? (
+                <span
+                  className={cn(
+                    "text-[10px] font-semibold leading-tight tabular-nums",
+                    sessionDeltaPct >= 0 ? "text-emerald-400" : "text-rose-400",
+                    sessionStale && "opacity-70",
+                  )}
+                >
+                  {sessionDeltaPct >= 0 ? "+" : ""}
+                  {sessionDeltaPct.toFixed(2)}%
+                </span>
+              ) : null}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Desktop cells */}
       <button
         type="button"
         onPointerDown={(e) => controls.start(e)}
         aria-label="Drag to reorder"
-        className="-ml-1 flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
+        className="-ml-1 hidden h-7 w-7 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing md:flex"
       >
         <GripVertical className="h-4 w-4" />
       </button>
-      <div className="flex flex-col">
-        <span className="font-medium">
+      <div className="hidden min-w-0 flex-col md:flex">
+        <span className="truncate font-medium">
           {stock ? inv.symbol : inv.label}
         </span>
-        <span className="text-xs text-muted">
+        <span className="truncate text-xs text-muted">
           {stock
             ? `${CATEGORY_META[inv.category].short} · ${nv.currency}`
             : CATEGORY_META[inv.category].label}
         </span>
       </div>
-      <span className="text-right tabular-nums">
+      <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
         {stock ? formatNumber(inv.quantity, 4) : "—"}
       </span>
-      <span className="text-right tabular-nums">
+      <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
         {stock && nv.unitPrice !== undefined
           ? formatCurrency(nv.unitPrice, nv.currency)
           : stock
@@ -344,7 +437,7 @@ function Row({
               ? `${inv.interestRate}% p.a.`
               : "—"}
       </span>
-      <div className="flex flex-col items-center justify-center gap-0.5">
+      <div className="hidden flex-col items-center justify-center gap-0.5 md:flex">
         {stock ? (
           <>
             <Sparkline
@@ -390,17 +483,29 @@ function Row({
           <span className="text-[10px] text-muted">—</span>
         )}
       </div>
-      <span className="text-right tabular-nums">
+      <span
+        className="hidden whitespace-nowrap text-right tabular-nums md:inline"
+        title={
+          stock
+            ? formatCurrency(inv.avgCost, inv.currency)
+            : inv.principal !== undefined
+              ? formatCurrency(inv.principal, inv.currency)
+              : undefined
+        }
+      >
         {stock
-          ? formatCurrency(inv.avgCost, inv.currency)
+          ? formatCurrencySmart(inv.avgCost, inv.currency)
           : inv.principal !== undefined
-            ? formatCurrency(inv.principal, inv.currency)
+            ? formatCurrencySmart(inv.principal, inv.currency)
             : "—"}
       </span>
-      <span className="text-right font-semibold tabular-nums">
-        {formatCurrency(value, display)}
+      <span
+        className="hidden whitespace-nowrap text-right font-semibold tabular-nums md:inline"
+        title={formatCurrency(value, display)}
+      >
+        {formatCurrencySmart(value, display)}
       </span>
-      <span className="text-right">
+      <span className="hidden whitespace-nowrap text-right md:inline">
         {pl === null || plPct === null ? (
           <span className="text-xs text-muted">—</span>
         ) : (
@@ -409,13 +514,14 @@ function Row({
               "inline-flex items-center gap-1 text-xs font-semibold tabular-nums",
               pl >= 0 ? "text-emerald-400" : "text-rose-400",
             )}
+            title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), display)}`}
           >
             {pl >= 0 ? (
               <ArrowUpRight className="h-3.5 w-3.5" />
             ) : (
               <ArrowDownRight className="h-3.5 w-3.5" />
             )}
-            <span>{formatCurrency(Math.abs(pl), display)}</span>
+            <span>{formatCurrencySmart(Math.abs(pl), display)}</span>
             <span className="text-muted">({formatPct(plPct)})</span>
           </span>
         )}

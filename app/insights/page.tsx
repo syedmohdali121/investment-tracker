@@ -21,6 +21,7 @@ import { MonthlyReturnsHeatmap } from "@/components/insights/monthly-heatmap";
 import { CagrLeaderboard } from "@/components/insights/cagr-leaderboard";
 import { CorrelationMatrix } from "@/components/insights/correlation-matrix";
 import { DividendsCard } from "@/components/insights/dividends-card";
+import { CardSkeleton, PaneSkeleton } from "@/components/skeletons";
 import { combinePortfolioSeries } from "@/lib/analytics";
 import { isStock, type StockInvestment } from "@/lib/types";
 import type { HistorySeries, IntradaySeries } from "@/lib/market";
@@ -154,7 +155,17 @@ export default function InsightsPage() {
       </motion.header>
 
       {loading ? (
-        <p className="text-sm text-muted">Loading…</p>
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <CardSkeleton key={i} />
+            ))}
+          </div>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <PaneSkeleton />
+            <PaneSkeleton />
+          </div>
+        </div>
       ) : insights.length === 0 && !hasHistory ? (
         <div className="rounded-2xl border border-white/10 bg-white/[0.02] p-8 text-center">
           <p className="text-sm text-muted">
