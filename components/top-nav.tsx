@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, PlusCircle, TrendingUp } from "lucide-react";
+import { LayoutDashboard, PlusCircle, Sparkles, TrendingUp } from "lucide-react";
 import { motion } from "framer-motion";
 import { cn } from "@/lib/cn";
 import { CurrencyToggle } from "./currency-toggle";
@@ -10,6 +10,7 @@ import { ThemeToggle } from "./theme-toggle";
 
 const tabs = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/insights", label: "Insights", icon: Sparkles },
   { href: "/add", label: "Add Investment", icon: PlusCircle },
 ];
 
