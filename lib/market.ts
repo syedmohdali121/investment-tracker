@@ -275,3 +275,60 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
     };
   }
 }
+
+export type DividendEvent = { t: number; amount: number };
+export type DividendSeries = {
+  symbol: string;
+  currency: Currency;
+  events: DividendEvent[];
+};
+
+const DIVIDEND_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
+const dividendCache = new Map<string, CacheEntry<DividendSeries>>();
+
+/** Fetch dividend events for the last N years (default 5). */
+export async function getDividends(
+  symbol: string,
+  years = 5,
+): Promise<DividendSeries> {
+  const cacheKey = `${symbol}|${years}`;
+  const now = Date.now();
+  const cached = dividendCache.get(cacheKey);
+  if (cached && cached.expires > now) return cached.value;
+
+  const start = new Date(now);
+  start.setFullYear(start.getFullYear() - years);
+  try {
+    const result = (await yahooFinance.chart(symbol, {
+      period1: start,
+      interval: "1d",
+      events: "div",
+    } as unknown as Parameters<typeof yahooFinance.chart>[1])) as unknown as {
+      meta?: { currency?: string };
+      events?: {
+        dividends?: Record<string, { date: Date | string; amount: number }>;
+      };
+    };
+    const events: DividendEvent[] = [];
+    const raw = result?.events?.dividends ?? {};
+    for (const key of Object.keys(raw)) {
+      const e = raw[key];
+      const t = new Date(e.date).getTime();
+      if (!Number.isFinite(t)) continue;
+      if (typeof e.amount !== "number") continue;
+      events.push({ t, amount: e.amount });
+    }
+    events.sort((a, b) => a.t - b.t);
+    const currency = normalizeCurrency(result?.meta?.currency);
+    const series: DividendSeries = { symbol, currency, events };
+    dividendCache.set(cacheKey, {
+      value: series,
+      expires: now + DIVIDEND_TTL_MS,
+    });
+    return series;
+  } catch (err) {
+    console.error("[market] getDividends error:", symbol, err);
+    if (cached) return cached.value;
+    return { symbol, currency: "USD", events: [] };
+  }
+}

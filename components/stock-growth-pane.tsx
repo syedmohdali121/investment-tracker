@@ -3,15 +3,18 @@
 import { useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
+  CartesianGrid,
+  Line,
+  LineChart,
   Area,
   AreaChart,
-  CartesianGrid,
+  ComposedChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
-import { ChevronDown, LineChart as LineIcon } from "lucide-react";
+import { ChevronDown, LineChart as LineIcon, Scale } from "lucide-react";
 import { HistoryRange, useHistory } from "@/app/providers";
 import { StockInvestment } from "@/lib/types";
 import { formatCurrency, formatNumber } from "@/lib/format";
@@ -30,15 +33,19 @@ export function StockGrowthPane({
   subtitle,
   stocks,
   accent,
+  benchmark,
 }: {
   title: string;
   subtitle?: string;
   stocks: StockInvestment[];
   accent: string;
+  /** Optional benchmark ticker, e.g. "SPY" or "^NSEI". */
+  benchmark?: { symbol: string; label: string };
 }) {
   const [open, setOpen] = useState(false);
   const [range, setRange] = useState<HistoryRange>("1y");
   const [selected, setSelected] = useState<string>("__all__");
+  const [compare, setCompare] = useState(false);
 
   const symbols = useMemo(
     () => Array.from(new Set(stocks.map((s) => s.symbol))),
@@ -53,46 +60,106 @@ export function StockGrowthPane({
   }, [stocks]);
 
   const historyQ = useHistory(open ? symbols : [], range);
+  const benchQ = useHistory(
+    open && compare && benchmark ? [benchmark.symbol] : [],
+    range,
+  );
 
   const currency =
     (historyQ.data?.series[0]?.currency as "USD" | "INR" | undefined) ??
     stocks[0]?.currency ??
     "USD";
 
-  const { chartData, combinedStart, combinedEnd } = useMemo(() => {
-    const series = historyQ.data?.series ?? [];
-    if (series.length === 0)
-      return { chartData: [], combinedStart: 0, combinedEnd: 0 };
+  const { chartData, combinedStart, combinedEnd, benchStart, benchEnd } =
+    useMemo(() => {
+      const series = historyQ.data?.series ?? [];
+      if (series.length === 0)
+        return {
+          chartData: [],
+          combinedStart: 0,
+          combinedEnd: 0,
+          benchStart: 0,
+          benchEnd: 0,
+        };
 
-    if (selected !== "__all__") {
-      const s = series.find((x) => x.symbol === selected);
-      if (!s) return { chartData: [], combinedStart: 0, combinedEnd: 0 };
-      const qty = qtyBySymbol.get(selected) ?? 0;
-      const data = s.points.map((p) => ({ t: p.t, value: p.close * qty }));
-      return {
-        chartData: data,
-        combinedStart: data[0]?.value ?? 0,
-        combinedEnd: data[data.length - 1]?.value ?? 0,
-      };
-    }
-
-    // Combined: index by timestamp, sum symbols that have data for that timestamp.
-    const byTime = new Map<number, number>();
-    for (const s of series) {
-      const qty = qtyBySymbol.get(s.symbol) ?? 0;
-      for (const p of s.points) {
-        byTime.set(p.t, (byTime.get(p.t) ?? 0) + p.close * qty);
+      // Step 1: build portfolio series (value over time) as before.
+      let portfolio: { t: number; value: number }[] = [];
+      if (selected !== "__all__") {
+        const s = series.find((x) => x.symbol === selected);
+        const qty = qtyBySymbol.get(selected) ?? 0;
+        if (s) portfolio = s.points.map((p) => ({ t: p.t, value: p.close * qty }));
+      } else {
+        const byTime = new Map<number, number>();
+        for (const s of series) {
+          const qty = qtyBySymbol.get(s.symbol) ?? 0;
+          for (const p of s.points) {
+            byTime.set(p.t, (byTime.get(p.t) ?? 0) + p.close * qty);
+          }
+        }
+        portfolio = Array.from(byTime.entries())
+          .sort((a, b) => a[0] - b[0])
+          .map(([t, value]) => ({ t, value }));
       }
-    }
-    const data = Array.from(byTime.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([t, value]) => ({ t, value }));
-    return {
-      chartData: data,
-      combinedStart: data[0]?.value ?? 0,
-      combinedEnd: data[data.length - 1]?.value ?? 0,
-    };
-  }, [historyQ.data, selected, qtyBySymbol]);
+
+      const cStart = portfolio[0]?.value ?? 0;
+      const cEnd = portfolio[portfolio.length - 1]?.value ?? 0;
+
+      // Step 2: if not comparing, return raw value series for the area chart.
+      if (!compare || !benchmark) {
+        return {
+          chartData: portfolio,
+          combinedStart: cStart,
+          combinedEnd: cEnd,
+          benchStart: 0,
+          benchEnd: 0,
+        };
+      }
+
+      // Step 3: comparing — normalize both to 100 and merge on timestamp.
+      const bench = benchQ.data?.series[0];
+      if (!bench || bench.points.length === 0 || portfolio.length === 0) {
+        return {
+          chartData: portfolio.map((p) => ({
+            t: p.t,
+            value: p.value,
+            benchValue: null as number | null,
+          })),
+          combinedStart: cStart,
+          combinedEnd: cEnd,
+          benchStart: 0,
+          benchEnd: 0,
+        };
+      }
+
+      const pBase = portfolio[0].value || 1;
+      const bBase = bench.points[0].close || 1;
+      const portfolioNorm = portfolio.map((p) => ({
+        t: p.t,
+        value: (p.value / pBase) * 100,
+      }));
+      const benchNorm = new Map<number, number>();
+      for (const p of bench.points) benchNorm.set(p.t, (p.close / bBase) * 100);
+
+      // Forward-fill benchmark onto portfolio timeline.
+      const benchTimes = Array.from(benchNorm.keys()).sort((a, b) => a - b);
+      let bi = 0;
+      let lastBench = benchNorm.get(benchTimes[0]) ?? 100;
+      const merged = portfolioNorm.map((p) => {
+        while (bi < benchTimes.length && benchTimes[bi] <= p.t) {
+          lastBench = benchNorm.get(benchTimes[bi]) ?? lastBench;
+          bi++;
+        }
+        return { t: p.t, value: p.value, benchValue: lastBench };
+      });
+
+      return {
+        chartData: merged,
+        combinedStart: cStart,
+        combinedEnd: cEnd,
+        benchStart: 100,
+        benchEnd: merged[merged.length - 1]?.benchValue ?? 100,
+      };
+    }, [historyQ.data, benchQ.data, selected, qtyBySymbol, compare, benchmark]);
 
   const delta = combinedEnd - combinedStart;
   const deltaPct =
@@ -168,22 +235,40 @@ export function StockGrowthPane({
                   </TabButton>
                 ))}
               </div>
-              <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5 text-xs">
-                {RANGES.map((r) => (
+              <div className="flex items-center gap-2">
+                {benchmark && (
                   <button
-                    key={r.value}
                     type="button"
-                    onClick={() => setRange(r.value)}
+                    onClick={() => setCompare((v) => !v)}
                     className={cn(
-                      "rounded-md px-2.5 py-1 font-semibold transition",
-                      range === r.value
-                        ? "bg-white/10 text-foreground"
-                        : "text-muted hover:text-foreground",
+                      "inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-semibold transition",
+                      compare
+                        ? "border-white/20 bg-white/10 text-foreground"
+                        : "border-white/10 bg-white/[0.03] text-muted hover:text-foreground",
                     )}
+                    title={`Overlay ${benchmark.label}`}
                   >
-                    {r.label}
+                    <Scale className="h-3 w-3" />
+                    vs {benchmark.label}
                   </button>
-                ))}
+                )}
+                <div className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 p-0.5 text-xs">
+                  {RANGES.map((r) => (
+                    <button
+                      key={r.value}
+                      type="button"
+                      onClick={() => setRange(r.value)}
+                      className={cn(
+                        "rounded-md px-2.5 py-1 font-semibold transition",
+                        range === r.value
+                          ? "bg-white/10 text-foreground"
+                          : "text-muted hover:text-foreground",
+                      )}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
@@ -191,25 +276,46 @@ export function StockGrowthPane({
               <div className="mb-3 flex items-end justify-between gap-3">
                 <div>
                   <div className="text-xs uppercase tracking-wider text-muted">
-                    {selected === "__all__" ? "Combined value" : "Holding value"}{" "}
-                    · projected with current quantity
+                    {compare
+                      ? `Normalized · base 100`
+                      : selected === "__all__"
+                        ? "Combined value · projected with current quantity"
+                        : "Holding value · projected with current quantity"}
                   </div>
                   <div className="mt-1 text-2xl font-semibold tabular-nums">
-                    {formatCurrency(combinedEnd, currency)}
+                    {compare
+                      ? `${formatNumber((combinedEnd / (combinedStart || 1)) * 100, 1)}`
+                      : formatCurrency(combinedEnd, currency)}
                   </div>
                 </div>
                 <div
                   className={cn(
                     "text-right text-xs font-semibold tabular-nums",
-                    delta >= 0 ? "text-emerald-400" : "text-rose-400",
+                    deltaPct >= 0 ? "text-emerald-400" : "text-rose-400",
                   )}
                 >
-                  {delta >= 0 ? "+" : "−"}
-                  {formatCurrency(Math.abs(delta), currency)}
-                  <div className="text-muted">
-                    {deltaPct >= 0 ? "+" : ""}
-                    {formatNumber(deltaPct, 2)}% over {range.toUpperCase()}
-                  </div>
+                  {compare ? (
+                    <>
+                      You {deltaPct >= 0 ? "+" : ""}
+                      {formatNumber(deltaPct, 2)}%
+                      {benchmark && benchQ.data?.series[0] && (
+                        <div className="text-muted">
+                          {benchmark.label}{" "}
+                          {benchEnd - 100 >= 0 ? "+" : ""}
+                          {formatNumber(benchEnd - 100, 2)}%
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {delta >= 0 ? "+" : "−"}
+                      {formatCurrency(Math.abs(delta), currency)}
+                      <div className="text-muted">
+                        {deltaPct >= 0 ? "+" : ""}
+                        {formatNumber(deltaPct, 2)}% over {range.toUpperCase()}
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
               <div className="h-[260px] w-full">
@@ -221,6 +327,78 @@ export function StockGrowthPane({
                   <div className="flex h-full items-center justify-center text-sm text-muted">
                     No history available for this range.
                   </div>
+                ) : compare && benchmark ? (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart
+                      data={chartData}
+                      margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
+                    >
+                      <CartesianGrid
+                        stroke="rgba(255,255,255,0.05)"
+                        vertical={false}
+                      />
+                      <XAxis
+                        dataKey="t"
+                        type="number"
+                        domain={["dataMin", "dataMax"]}
+                        tickFormatter={(t) => fmtTick(t, range)}
+                        stroke="rgba(255,255,255,0.3)"
+                        tick={{ fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        minTickGap={40}
+                      />
+                      <YAxis
+                        stroke="rgba(255,255,255,0.3)"
+                        tick={{ fontSize: 11 }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={56}
+                        tickFormatter={(v) => formatNumber(Number(v), 0)}
+                        domain={["auto", "auto"]}
+                      />
+                      <Tooltip
+                        cursor={{ stroke: "rgba(255,255,255,0.15)" }}
+                        contentStyle={{
+                          background: "rgba(15,15,20,0.95)",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          borderRadius: 10,
+                          color: "white",
+                          fontSize: 12,
+                        }}
+                        labelFormatter={(t) =>
+                          fmtTooltipLabel(t as number, range)
+                        }
+                        formatter={(v, name) => [
+                          `${formatNumber(Number(v), 2)}`,
+                          name === "benchValue"
+                            ? benchmark.label
+                            : selected === "__all__"
+                              ? "Portfolio"
+                              : selected,
+                        ]}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="value"
+                        stroke={accent}
+                        strokeWidth={2}
+                        dot={false}
+                        isAnimationActive
+                        animationDuration={500}
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="benchValue"
+                        stroke="#9ca3af"
+                        strokeDasharray="4 3"
+                        strokeWidth={1.5}
+                        dot={false}
+                        isAnimationActive
+                        animationDuration={500}
+                      />
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 ) : (
                   <ResponsiveContainer width="100%" height="100%">
                     <AreaChart

@@ -293,6 +293,7 @@ function GrowthSection({ investments }: { investments: Investment[] }) {
             subtitle={`${us.length} holding${us.length === 1 ? "" : "s"} · USD`}
             stocks={us}
             accent={CATEGORY_META.US_STOCK.color}
+            benchmark={{ symbol: "SPY", label: "SPY" }}
           />
         )}
         {ind.length > 0 && (
@@ -301,6 +302,7 @@ function GrowthSection({ investments }: { investments: Investment[] }) {
             subtitle={`${ind.length} holding${ind.length === 1 ? "" : "s"} · INR`}
             stocks={ind}
             accent={CATEGORY_META.INDIAN_STOCK.color}
+            benchmark={{ symbol: "^NSEI", label: "Nifty 50" }}
           />
         )}
       </div>

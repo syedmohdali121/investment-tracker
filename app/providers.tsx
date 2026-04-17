@@ -154,6 +154,29 @@ export function useIntraday(symbols: string[]) {
   });
 }
 
+export type DividendEvent = { t: number; amount: number };
+export type DividendSeries = {
+  symbol: string;
+  currency: "USD" | "INR";
+  events: DividendEvent[];
+};
+
+export function useDividends(symbols: string[], years = 5) {
+  const key = [...symbols].sort().join(",");
+  return useQuery<{ series: DividendSeries[]; years: number; asOf: string }>({
+    queryKey: ["dividends", years, key],
+    enabled: symbols.length > 0,
+    staleTime: 6 * 60 * 60_000,
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/dividends?symbols=${encodeURIComponent(key)}&years=${years}`,
+      );
+      if (!res.ok) throw new Error("Failed to load dividends");
+      return res.json();
+    },
+  });
+}
+
 export function useHistory(symbols: string[], range: HistoryRange) {
   const key = [...symbols].sort().join(",");
   return useQuery<{
