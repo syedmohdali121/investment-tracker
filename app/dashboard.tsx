@@ -15,6 +15,7 @@ import {
   useFx,
   useInvestments,
   usePrices,
+  useProfiles,
 } from "./providers";
 import {
   aggregateByCategory,
@@ -26,6 +27,10 @@ import {
 } from "@/lib/valuation";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { AllocationPie } from "@/components/allocation-pie";
+import { AssetClassBar } from "@/components/asset-class-bar";
+import { ConcentrationMeter } from "@/components/concentration-meter";
+import { ContributionList } from "@/components/contribution-list";
+import { SectorBreakdown } from "@/components/sector-breakdown";
 import { Card } from "@/components/card";
 import { HoldingsTable } from "@/components/holdings-table";
 import { AnimatedNumber } from "@/components/animated-number";
@@ -57,6 +62,79 @@ export default function DashboardPage() {
   const usdInr = fxQ.data?.usdInr ?? 83;
   const total = netWorth(investments, priceMap, usdInr, currency);
   const agg = aggregateByCategory(investments, priceMap, usdInr, currency);
+
+  // Per-holding values in the display currency, for the treemap / concentration
+  // meter / sector breakdown. Only fetch sector profiles when we actually hold
+  // stocks, and skip it entirely for small portfolios where the extra widgets
+  // wouldn't render anyway.
+  const stockSymbols = investments.filter(isStock).map((s) => s.symbol);
+  const showExtras = investments.length >= 6;
+  const profilesQ = useProfiles(showExtras ? stockSymbols : []);
+  const profileMap = Object.fromEntries(
+    (profilesQ.data?.profiles ?? []).map((p) => [p.symbol, p]),
+  );
+
+  const holdingItems = investments.map((inv) => {
+    const value = valueIn(inv, priceMap, usdInr, currency);
+    const label = isStock(inv) ? inv.symbol : inv.label;
+    const fullName = isStock(inv)
+      ? priceMap[inv.symbol]
+        ? undefined
+        : inv.symbol
+      : inv.label;
+    return {
+      key: inv.id,
+      label,
+      fullName,
+      category: inv.category,
+      value,
+      symbol: isStock(inv) ? inv.symbol : null,
+    };
+  });
+
+  const stockHoldingItems = holdingItems
+    .filter((h) => h.symbol)
+    .map((h) => ({ symbol: h.symbol as string, value: h.value }));
+
+  // Contribution to return — today's P/L and all-time P/L per holding, in the
+  // display currency. For cash buckets we only have all-time P/L when a
+  // principal was set, and no intraday move.
+  const contributionRows = investments.map((inv) => {
+    const label = isStock(inv) ? inv.symbol : inv.label;
+    let todayPL: number | null = null;
+    let totalPL: number | null = null;
+    if (isStock(inv)) {
+      const q = priceMap[inv.symbol];
+      if (q) {
+        if (typeof q.previousClose === "number" && q.previousClose > 0) {
+          const deltaNative = (q.price - q.previousClose) * inv.quantity;
+          todayPL = deltaNative === 0
+            ? 0
+            : (deltaNative *
+                (q.currency === currency
+                  ? 1
+                  : q.currency === "USD"
+                  ? usdInr
+                  : 1 / usdInr));
+        }
+        const totalNative = (q.price - inv.avgCost) * inv.quantity;
+        totalPL =
+          totalNative === 0
+            ? 0
+            : totalNative *
+              (q.currency === currency
+                ? 1
+                : q.currency === "USD"
+                ? usdInr
+                : 1 / usdInr);
+      }
+    } else {
+      const c = costIn(inv, usdInr, currency);
+      const v = valueIn(inv, priceMap, usdInr, currency);
+      if (c !== null) totalPL = v - c;
+    }
+    return { key: inv.id, label, todayPL, totalPL };
+  });
 
   const totalCost = investments.reduce((s, inv) => {
     const c = costIn(inv, usdInr, currency);
@@ -253,6 +331,38 @@ export default function DashboardPage() {
                   </div>
                 ))}
               </div>
+
+              {/* Extra widgets — only render when the holdings table is tall
+                  enough that the allocation column would otherwise look empty. */}
+              {showExtras && (
+                <div className="mt-4 space-y-3">
+                  <AssetClassBar
+                    data={agg.map((a) => ({
+                      category: a.category,
+                      value: a.value,
+                    }))}
+                    currency={currency}
+                  />
+                  <ContributionList
+                    rows={contributionRows}
+                    currency={currency}
+                  />
+                  <ConcentrationMeter
+                    items={holdingItems.map((h) => ({
+                      key: h.key,
+                      label: h.label,
+                      value: h.value,
+                    }))}
+                  />
+                  {stockHoldingItems.length >= 4 && (
+                    <SectorBreakdown
+                      items={stockHoldingItems}
+                      profiles={profileMap}
+                      currency={currency}
+                    />
+                  )}
+                </div>
+              )}
             </Card>
 
             <div className="lg:col-span-2">

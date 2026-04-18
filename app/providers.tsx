@@ -206,6 +206,29 @@ export function useDividends(symbols: string[], years = 5) {
   });
 }
 
+export type AssetProfile = {
+  symbol: string;
+  sector: string | null;
+  industry: string | null;
+  quoteType: string | null;
+};
+
+export function useProfiles(symbols: string[]) {
+  const key = [...symbols].sort().join(",");
+  return useQuery<{ profiles: AssetProfile[]; asOf: string }>({
+    queryKey: ["profiles", key],
+    enabled: symbols.length > 0,
+    staleTime: 24 * 60 * 60_000,
+    queryFn: async () => {
+      const res = await fetch(
+        `/api/profile?symbols=${encodeURIComponent(key)}`,
+      );
+      if (!res.ok) throw new Error("Failed to load profiles");
+      return res.json();
+    },
+  });
+}
+
 export function useHistory(symbols: string[], range: HistoryRange) {
   const key = [...symbols].sort().join(",");
   return useQuery<{

@@ -362,3 +362,60 @@ export async function getDividends(
     return { symbol, currency: "USD", events: [] };
   }
 }
+
+export type AssetProfile = {
+  symbol: string;
+  sector: string | null;
+  industry: string | null;
+  quoteType: string | null;
+};
+
+const PROFILE_TTL_MS = 24 * 60 * 60 * 1000; // 24h — sector rarely changes
+const profileCache = new Map<string, CacheEntry<AssetProfile>>();
+
+/**
+ * Fetch sector/industry via quoteSummary. Returns nulls for crypto / ETFs /
+ * commodities / any symbol without an assetProfile module. Long-cached.
+ */
+export async function getAssetProfile(symbol: string): Promise<AssetProfile> {
+  const now = Date.now();
+  const cached = profileCache.get(symbol);
+  if (cached && cached.expires > now) return cached.value;
+
+  try {
+    const result = (await (
+      yahooFinance as unknown as {
+        quoteSummary: (
+          s: string,
+          opts: { modules: string[] },
+        ) => Promise<unknown>;
+      }
+    ).quoteSummary(symbol, {
+      modules: ["assetProfile", "price"],
+    })) as {
+      assetProfile?: { sector?: string; industry?: string };
+      price?: { quoteType?: string };
+    } | null;
+
+    const profile: AssetProfile = {
+      symbol,
+      sector: result?.assetProfile?.sector ?? null,
+      industry: result?.assetProfile?.industry ?? null,
+      quoteType: result?.price?.quoteType ?? null,
+    };
+    profileCache.set(symbol, { value: profile, expires: now + PROFILE_TTL_MS });
+    return profile;
+  } catch (err) {
+    console.error("[market] getAssetProfile error:", symbol, err);
+    if (cached) return cached.value;
+    const fallback: AssetProfile = {
+      symbol,
+      sector: null,
+      industry: null,
+      quoteType: null,
+    };
+    // short-cache failures so we don't hammer Yahoo
+    profileCache.set(symbol, { value: fallback, expires: now + 10 * 60_000 });
+    return fallback;
+  }
+}
