@@ -136,12 +136,15 @@ function historyTtl(range: HistoryRange): number {
 function rangeToParams(range: HistoryRange): {
   period1: Date;
   interval: "5m" | "30m" | "1d";
+  includePrePost?: boolean;
 } {
   const now = new Date();
   if (range === "1d") {
-    const start = new Date(now);
-    start.setHours(0, 0, 0, 0);
-    return { period1: start, interval: "5m" };
+    // Look back 7 days so we always capture the most recent session even
+    // when today is a weekend / market holiday. We'll trim down to the last
+    // session's bars in getHistory().
+    const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    return { period1: start, interval: "5m", includePrePost: false };
   }
   if (range === "5d") {
     const start = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -162,16 +165,23 @@ export async function getHistory(
   const cached = historyCache.get(cacheKey);
   if (cached && cached.expires > now) return cached.value;
 
-  const { period1, interval } = rangeToParams(range);
+  const { period1, interval, includePrePost } = rangeToParams(range);
   try {
     const result = (await yahooFinance.chart(symbol, {
       period1,
       interval,
-    })) as unknown as {
-      meta?: { currency?: string };
+      ...(includePrePost === false ? { includePrePost: false } : {}),
+    } as unknown as Parameters<typeof yahooFinance.chart>[1])) as unknown as {
+      meta?: {
+        currency?: string;
+        previousClose?: number;
+        currentTradingPeriod?: {
+          regular?: { start?: number; end?: number };
+        };
+      };
       quotes?: Array<{ date: Date | string; close: number | null }>;
     };
-    const points: HistoryPoint[] = [];
+    let points: HistoryPoint[] = [];
     for (const q of result?.quotes ?? []) {
       if (q == null) continue;
       const close = q.close;
@@ -179,6 +189,43 @@ export async function getHistory(
       const t = new Date(q.date).getTime();
       if (!Number.isFinite(t)) continue;
       points.push({ t, close });
+    }
+    // For the 1D view, trim the 7-day lookback down to just the most recent
+    // trading session's bars so the chart reflects "one day" even on
+    // weekends / holidays.
+    if (range === "1d" && points.length > 0) {
+      const dayKey = (t: number) => new Date(t).toISOString().slice(0, 10);
+      const lastKey = dayKey(points[points.length - 1].t);
+      const lastDay = points.filter((p) => dayKey(p.t) === lastKey);
+      // Baseline = prior session's close. Prefer Yahoo's meta.previousClose
+      // (matches the quote endpoint's regularMarketPreviousClose exactly, so
+      // the 1D delta in the chart matches the "today's P/L" in the header).
+      // Fall back to the last 5m bar of the prior calendar day — Yahoo's
+      // intraday bars often stop 5 min before the settlement close, so the
+      // two values can differ slightly.
+      let baselineClose: number | null = null;
+      if (typeof result?.meta?.previousClose === "number") {
+        baselineClose = result.meta.previousClose;
+      } else {
+        const prior = points.filter((p) => dayKey(p.t) !== lastKey);
+        if (prior.length > 0) baselineClose = prior[prior.length - 1].close;
+      }
+      points = lastDay;
+      const reg = result?.meta?.currentTradingPeriod?.regular;
+      if (reg && typeof reg.start === "number" && typeof reg.end === "number") {
+        const startMs = reg.start * 1000;
+        const endMs = reg.end * 1000;
+        const trimmed = points.filter((p) => p.t >= startMs && p.t <= endMs);
+        if (trimmed.length > 0) points = trimmed;
+      }
+      if (baselineClose !== null && points.length > 0) {
+        // Place the baseline one millisecond before the first session bar so
+        // it sorts first but doesn't visibly extend the x-axis.
+        points = [
+          { t: points[0].t - 1, close: baselineClose },
+          ...points,
+        ];
+      }
     }
     const currency = normalizeCurrency(result?.meta?.currency);
     const series: HistorySeries = { symbol, currency, points };

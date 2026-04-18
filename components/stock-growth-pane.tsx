@@ -89,16 +89,50 @@ export function StockGrowthPane({
         const qty = qtyBySymbol.get(selected) ?? 0;
         if (s) portfolio = s.points.map((p) => ({ t: p.t, value: p.close * qty }));
       } else {
-        const byTime = new Map<number, number>();
+        // Build the union of timestamps across all symbols, then forward-fill
+        // each symbol along that timeline. Without the fill, if one symbol has
+        // a bar at a timestamp the others don't (e.g. 5m bars ending at
+        // slightly different minutes per ticker, or different trading hours),
+        // the missing symbols contribute 0 at that tick and the combined
+        // value cliff-dives. Forward-fill gives each symbol its most recent
+        // known price at every tick instead.
+        const union = new Set<number>();
+        for (const s of series) for (const p of s.points) union.add(p.t);
+        const times = Array.from(union).sort((a, b) => a - b);
+
+        const filled: Array<{ t: number; value: number }> = times.map((t) => ({
+          t,
+          value: 0,
+        }));
         for (const s of series) {
           const qty = qtyBySymbol.get(s.symbol) ?? 0;
-          for (const p of s.points) {
-            byTime.set(p.t, (byTime.get(p.t) ?? 0) + p.close * qty);
+          if (qty === 0 || s.points.length === 0) continue;
+          const pts = s.points;
+          let i = 0;
+          let lastClose: number | null = null;
+          for (let k = 0; k < times.length; k++) {
+            const t = times[k];
+            while (i < pts.length && pts[i].t <= t) {
+              lastClose = pts[i].close;
+              i++;
+            }
+            // Only start contributing once this symbol has seen its first
+            // bar — otherwise early ticks would miss this symbol entirely.
+            if (lastClose !== null) filled[k].value += lastClose * qty;
           }
         }
-        portfolio = Array.from(byTime.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([t, value]) => ({ t, value }));
+        // Drop the leading ticks where not every symbol has started yet, so
+        // the combined line begins only when all holdings have a price.
+        const firstCompleteIdx = times.findIndex((t) => {
+          for (const s of series) {
+            if ((qtyBySymbol.get(s.symbol) ?? 0) === 0) continue;
+            if (s.points.length === 0) continue;
+            if (s.points[0].t > t) return false;
+          }
+          return true;
+        });
+        portfolio =
+          firstCompleteIdx >= 0 ? filled.slice(firstCompleteIdx) : filled;
       }
 
       const cStart = portfolio[0]?.value ?? 0;
