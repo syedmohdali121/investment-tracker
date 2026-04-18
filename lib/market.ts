@@ -200,6 +200,8 @@ export type IntradaySeries = {
   points: HistoryPoint[]; // most recent trading session, 5m interval
   prevClose: number | null;
   sessionDate: string | null; // YYYY-MM-DD of the session
+  sessionStart: number | null; // ms — regular session open
+  sessionEnd: number | null; // ms — regular session close
 };
 
 const INTRADAY_TTL_MS = 60_000;
@@ -270,12 +272,19 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
       (typeof result?.meta?.chartPreviousClose === "number"
         ? result.meta.chartPreviousClose
         : null);
+    const reg = result?.meta?.currentTradingPeriod?.regular;
+    const sessionStart =
+      reg && typeof reg.start === "number" ? reg.start * 1000 : null;
+    const sessionEnd =
+      reg && typeof reg.end === "number" ? reg.end * 1000 : null;
     const series: IntradaySeries = {
       symbol,
       currency,
       points,
       prevClose,
       sessionDate,
+      sessionStart,
+      sessionEnd,
     };
     intradayCache.set(symbol, {
       value: series,
@@ -291,6 +300,8 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
       points: [],
       prevClose: null,
       sessionDate: null,
+      sessionStart: null,
+      sessionEnd: null,
     };
   }
 }

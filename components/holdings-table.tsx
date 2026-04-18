@@ -414,6 +414,8 @@ function Row({
                   null
                 }
                 stale={sessionStale}
+                sessionStart={sessionStale ? null : intraday?.sessionStart}
+                sessionEnd={sessionStale ? null : intraday?.sessionEnd}
               />
               {sessionDeltaPct !== null ? (
                 <span
@@ -474,6 +476,8 @@ function Row({
                 null
               }
               stale={sessionStale}
+              sessionStart={sessionStale ? null : intraday?.sessionStart}
+              sessionEnd={sessionStale ? null : intraday?.sessionEnd}
             />
             {sessionDeltaPct !== null ? (
               <span

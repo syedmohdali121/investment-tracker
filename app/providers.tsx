@@ -160,6 +160,8 @@ export type IntradaySeries = {
   points: IntradayPoint[];
   prevClose: number | null;
   sessionDate: string | null;
+  sessionStart: number | null;
+  sessionEnd: number | null;
 };
 
 export function useIntraday(symbols: string[]) {

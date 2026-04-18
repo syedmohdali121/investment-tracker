@@ -8,12 +8,18 @@ export function Sparkline({
   width = 96,
   height = 28,
   stale = false,
+  sessionStart,
+  sessionEnd,
 }: {
   points: Pt[];
   prevClose: number | null;
   width?: number;
   height?: number;
   stale?: boolean;
+  /** Session window in ms — when provided, x is mapped by time so an
+   *  in-progress session leaves empty space on the right. */
+  sessionStart?: number | null;
+  sessionEnd?: number | null;
 }) {
   if (!points || points.length < 2) {
     return (
@@ -43,9 +49,21 @@ export function Sparkline({
   const innerW = w - pad * 2;
   const innerH = h - pad * 2;
 
-  const xs = points.map((_, i) =>
-    pad + (i / (points.length - 1)) * innerW,
-  );
+  // When a session window is supplied, map each point's x to its fraction of
+  // the session so an in-progress day leaves blank space to the right.
+  const useTime =
+    typeof sessionStart === "number" &&
+    typeof sessionEnd === "number" &&
+    sessionEnd > sessionStart;
+  const xs = useTime
+    ? points.map((p) => {
+        const frac = Math.max(
+          0,
+          Math.min(1, (p.t - sessionStart!) / (sessionEnd! - sessionStart!)),
+        );
+        return pad + frac * innerW;
+      })
+    : points.map((_, i) => pad + (i / (points.length - 1)) * innerW);
   const ys = values.map(
     (v) => pad + innerH - ((v - min) / range) * innerH,
   );
