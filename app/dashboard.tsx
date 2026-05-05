@@ -59,6 +59,10 @@ export default function DashboardPage() {
       previousClose: q.previousClose,
     };
   }
+  const prevCloseBySymbol: Record<string, number | undefined> = {};
+  for (const q of pricesQ.data?.quotes ?? []) {
+    prevCloseBySymbol[q.symbol] = q.previousClose;
+  }
   const usdInr = fxQ.data?.usdInr ?? 83;
   const total = netWorth(investments, priceMap, usdInr, currency);
   const agg = aggregateByCategory(investments, priceMap, usdInr, currency);
@@ -375,14 +379,23 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          <GrowthSection investments={investments} />
+          <GrowthSection
+            investments={investments}
+            prevCloseBySymbol={prevCloseBySymbol}
+          />
         </>
       )}
     </div>
   );
 }
 
-function GrowthSection({ investments }: { investments: Investment[] }) {
+function GrowthSection({
+  investments,
+  prevCloseBySymbol,
+}: {
+  investments: Investment[];
+  prevCloseBySymbol: Record<string, number | undefined>;
+}) {
   const stocks = investments.filter(isStock) as StockInvestment[];
   if (stocks.length === 0) return null;
   const us = stocks.filter((s) => s.category === "US_STOCK");
@@ -405,6 +418,7 @@ function GrowthSection({ investments }: { investments: Investment[] }) {
             stocks={us}
             accent={CATEGORY_META.US_STOCK.color}
             benchmark={{ symbol: "SPY", label: "SPY" }}
+            prevCloseBySymbol={prevCloseBySymbol}
           />
         )}
         {ind.length > 0 && (
@@ -414,6 +428,7 @@ function GrowthSection({ investments }: { investments: Investment[] }) {
             stocks={ind}
             accent={CATEGORY_META.INDIAN_STOCK.color}
             benchmark={{ symbol: "^NSEI", label: "Nifty 50" }}
+            prevCloseBySymbol={prevCloseBySymbol}
           />
         )}
       </div>

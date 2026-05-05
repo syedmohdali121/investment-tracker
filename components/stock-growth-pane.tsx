@@ -34,6 +34,7 @@ export function StockGrowthPane({
   stocks,
   accent,
   benchmark,
+  prevCloseBySymbol,
 }: {
   title: string;
   subtitle?: string;
@@ -41,6 +42,14 @@ export function StockGrowthPane({
   accent: string;
   /** Optional benchmark ticker, e.g. "SPY" or "^NSEI". */
   benchmark?: { symbol: string; label: string };
+  /**
+   * Authoritative prior-session close per symbol (from the live quote feed).
+   * When provided and range === "1d", the pane uses this as the baseline for
+   * each symbol's series so the 1D delta matches the broker-style "Today's
+   * P/L" that the rest of the dashboard shows (i.e. it includes the overnight
+   * gap between yesterday's close and today's open).
+   */
+  prevCloseBySymbol?: Record<string, number | undefined>;
 }) {
   const [open, setOpen] = useState(false);
   const [range, setRange] = useState<HistoryRange>("1y");
@@ -72,7 +81,40 @@ export function StockGrowthPane({
 
   const { chartData, combinedStart, combinedEnd, benchStart, benchEnd } =
     useMemo(() => {
-      const series = historyQ.data?.series ?? [];
+      const rawSeries = historyQ.data?.series ?? [];
+      // For the 1D view, reseed each symbol's first point with the
+      // authoritative previousClose from the quote feed so the chart's
+      // starting baseline (and therefore its delta) matches the broker-style
+      // "Today's P/L" used elsewhere on the dashboard. The history endpoint
+      // already prepends a baseline using yahoo's chart `meta.previousClose`,
+      // but that can drift from the quote endpoint's
+      // `regularMarketPreviousClose`; we trust the quote here.
+      const series =
+        range === "1d" && prevCloseBySymbol
+          ? rawSeries.map((s) => {
+              const prev = prevCloseBySymbol[s.symbol];
+              if (
+                typeof prev !== "number" ||
+                !Number.isFinite(prev) ||
+                s.points.length === 0
+              ) {
+                return s;
+              }
+              // If the API already prepended a baseline (1ms before the first
+              // real bar), replace its close. Otherwise prepend our own.
+              const gap =
+                s.points.length > 1 ? s.points[1].t - s.points[0].t : Infinity;
+              if (gap > 0 && gap <= 1000) {
+                const next = s.points.slice();
+                next[0] = { ...next[0], close: prev };
+                return { ...s, points: next };
+              }
+              return {
+                ...s,
+                points: [{ t: s.points[0].t - 1, close: prev }, ...s.points],
+              };
+            })
+          : rawSeries;
       if (series.length === 0)
         return {
           chartData: [],
@@ -193,7 +235,7 @@ export function StockGrowthPane({
         benchStart: 100,
         benchEnd: merged[merged.length - 1]?.benchValue ?? 100,
       };
-    }, [historyQ.data, benchQ.data, selected, qtyBySymbol, compare, benchmark]);
+    }, [historyQ.data, benchQ.data, selected, qtyBySymbol, compare, benchmark, range, prevCloseBySymbol]);
 
   const delta = combinedEnd - combinedStart;
   const deltaPct =

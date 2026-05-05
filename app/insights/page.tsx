@@ -21,6 +21,8 @@ import { MonthlyReturnsHeatmap } from "@/components/insights/monthly-heatmap";
 import { CagrLeaderboard } from "@/components/insights/cagr-leaderboard";
 import { CorrelationMatrix } from "@/components/insights/correlation-matrix";
 import { DividendsCard } from "@/components/insights/dividends-card";
+import { XirrLeaderboard } from "@/components/insights/xirr-leaderboard";
+import { TaxProjectionCard } from "@/components/insights/tax-projection";
 import { CardSkeleton, PaneSkeleton } from "@/components/skeletons";
 import { combinePortfolioSeries } from "@/lib/analytics";
 import { isStock, type StockInvestment } from "@/lib/types";
@@ -243,6 +245,35 @@ export default function InsightsPage() {
               <div className="grid grid-cols-1 gap-4">
                 <CagrLeaderboard history={historyMap} />
               </div>
+            </section>
+          )}
+
+          {stocks.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold tracking-wide text-foreground/80">
+                Money-weighted return
+              </h2>
+              <XirrLeaderboard
+                investments={investments}
+                prices={priceMap}
+                dividends={dividendsMap}
+                usdInr={fxQ.data?.usdInr ?? 83}
+                display={currency}
+              />
+            </section>
+          )}
+
+          {stocks.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-sm font-semibold tracking-wide text-foreground/80">
+                Tax projection
+              </h2>
+              <TaxProjectionCard
+                investments={investments}
+                prices={priceMap}
+                usdInr={fxQ.data?.usdInr ?? 83}
+                display={currency}
+              />
             </section>
           )}
 

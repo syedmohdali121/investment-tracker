@@ -49,17 +49,19 @@ export type Investment = z.infer<typeof InvestmentSchema>;
 export type StockInvestment = z.infer<typeof StockInvestmentSchema>;
 export type CashInvestment = z.infer<typeof CashInvestmentSchema>;
 
-// Input schemas for create (no id/timestamps)
+// Input schemas for create (no id/timestamps; createdAt is optional so
+// callers can backdate the purchase — important for accurate ST/LT tax
+// classification).
 export const StockInvestmentInputSchema = StockInvestmentSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
-});
+}).extend({ createdAt: z.string().optional() });
 export const CashInvestmentInputSchema = CashInvestmentSchema.omit({
   id: true,
   createdAt: true,
   updatedAt: true,
-});
+}).extend({ createdAt: z.string().optional() });
 export const InvestmentInputSchema = z.discriminatedUnion("category", [
   StockInvestmentInputSchema,
   CashInvestmentInputSchema,

@@ -211,3 +211,83 @@ export function seriesCagr(points: HistoryPoint[]): {
   if (years <= 0 || first.close <= 0) return null;
   return { cagr: Math.pow(last.close / first.close, 1 / years) - 1, years };
 }
+
+/**
+ * Money-weighted return (XIRR). Given dated cash flows where outflows are
+ * negative (money you put in) and inflows are positive (dividends, sales,
+ * the synthetic "sell today" amount), returns the annualized rate that
+ * makes the NPV zero.
+ *
+ * Solved with Newton-Raphson, falling back to bisection if the derivative
+ * is degenerate. Returns null if the flows don't have at least one of each
+ * sign or no rate is found.
+ */
+export type CashFlow = { t: number; amount: number };
+
+export function xirr(flows: CashFlow[], guess = 0.1): number | null {
+  if (flows.length < 2) return null;
+  const sorted = [...flows].sort((a, b) => a.t - b.t);
+  const t0 = sorted[0].t;
+  let hasPos = false;
+  let hasNeg = false;
+  for (const f of sorted) {
+    if (f.amount > 0) hasPos = true;
+    else if (f.amount < 0) hasNeg = true;
+  }
+  if (!hasPos || !hasNeg) return null;
+  const yearFrac = (t: number) => (t - t0) / (365.25 * 24 * 60 * 60 * 1000);
+
+  const npv = (rate: number) => {
+    let s = 0;
+    for (const f of sorted) {
+      s += f.amount / Math.pow(1 + rate, yearFrac(f.t));
+    }
+    return s;
+  };
+  const dnpv = (rate: number) => {
+    let s = 0;
+    for (const f of sorted) {
+      const y = yearFrac(f.t);
+      if (y === 0) continue;
+      s += (-y * f.amount) / Math.pow(1 + rate, y + 1);
+    }
+    return s;
+  };
+
+  // Newton-Raphson
+  let rate = guess;
+  for (let i = 0; i < 60; i++) {
+    const v = npv(rate);
+    if (Math.abs(v) < 1e-7) return rate;
+    const d = dnpv(rate);
+    if (!Number.isFinite(d) || d === 0) break;
+    const next = rate - v / d;
+    if (!Number.isFinite(next) || next <= -0.999999) break;
+    if (Math.abs(next - rate) < 1e-9) return next;
+    rate = next;
+  }
+
+  // Bisection fallback over a wide bracket.
+  let lo = -0.99;
+  let hi = 10;
+  let fLo = npv(lo);
+  let fHi = npv(hi);
+  if (Number.isFinite(fLo) && Number.isFinite(fHi) && fLo * fHi < 0) {
+    for (let i = 0; i < 200; i++) {
+      const mid = (lo + hi) / 2;
+      const fMid = npv(mid);
+      if (!Number.isFinite(fMid)) return null;
+      if (Math.abs(fMid) < 1e-7) return mid;
+      if (fLo * fMid < 0) {
+        hi = mid;
+        fHi = fMid;
+      } else {
+        lo = mid;
+        fLo = fMid;
+      }
+    }
+    return (lo + hi) / 2;
+  }
+  return null;
+}
+

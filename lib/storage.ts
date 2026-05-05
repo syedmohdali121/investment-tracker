@@ -60,10 +60,18 @@ export async function addInvestment(input: unknown): Promise<Investment> {
   return withLock(async () => {
     const store = await readStore();
     const now = new Date().toISOString();
+    // Honor a user-supplied purchase date so tax holding-period logic
+    // works when backfilling old positions. Fall back to "now" if missing
+    // or unparseable.
+    const supplied = (parsed as { createdAt?: string }).createdAt;
+    const createdAt =
+      supplied && Number.isFinite(Date.parse(supplied))
+        ? new Date(supplied).toISOString()
+        : now;
     const inv = {
       ...parsed,
       id: randomUUID(),
-      createdAt: now,
+      createdAt,
       updatedAt: now,
     } as Investment;
     store.investments.push(inv);
@@ -86,11 +94,18 @@ export async function updateInvestment(
     const validated = InvestmentInputSchema.parse({
       ...merged,
     });
+    // Allow editing the purchase date so users can correct a mis-dated
+    // entry (e.g. one created before backdating was supported).
+    const suppliedCreatedAt = (validated as { createdAt?: string }).createdAt;
+    const nextCreatedAt =
+      suppliedCreatedAt && Number.isFinite(Date.parse(suppliedCreatedAt))
+        ? new Date(suppliedCreatedAt).toISOString()
+        : current.createdAt;
     const next = {
       ...current,
       ...validated,
       id: current.id,
-      createdAt: current.createdAt,
+      createdAt: nextCreatedAt,
       updatedAt: new Date().toISOString(),
     } as Investment;
     store.investments[idx] = next;

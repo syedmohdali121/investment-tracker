@@ -79,6 +79,7 @@ export function AddInvestmentForm() {
   const [balance, setBalance] = useState("");
   const [principal, setPrincipal] = useState("");
   const [interestRate, setInterestRate] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
   const [preview, setPreview] = useState<SymbolPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -98,6 +99,7 @@ export function AddInvestmentForm() {
     setBalance("");
     setPrincipal("");
     setInterestRate("");
+    setPurchaseDate("");
     setPreview(null);
     setEditingId(null);
   }
@@ -106,6 +108,9 @@ export function AddInvestmentForm() {
     setEditingId(inv.id);
     setCategory(inv.category);
     setPreview(null);
+    // Pre-fill the date picker with the existing purchase date so users
+    // can correct it. Date input expects YYYY-MM-DD in local time.
+    setPurchaseDate(toDateInputValue(inv.createdAt));
     if (isStock(inv)) {
       setSymbol(inv.symbol);
       setQuantity(String(inv.quantity));
@@ -156,6 +161,16 @@ export function AddInvestmentForm() {
     e.preventDefault();
     setSubmitting(true);
     try {
+      // The date input gives us a YYYY-MM-DD string in the user's local
+      // timezone. Convert to an ISO timestamp at local noon so it lands on
+      // the same calendar day in any timezone the server might use.
+      let createdAtIso: string | undefined;
+      if (purchaseDate.trim()) {
+        const [y, m, d] = purchaseDate.split("-").map(Number);
+        if (y && m && d) {
+          createdAtIso = new Date(y, m - 1, d, 12, 0, 0).toISOString();
+        }
+      }
       let body: Record<string, unknown>;
       if (isStockForm) {
         const q = parseFloat(quantity);
@@ -170,6 +185,7 @@ export function AddInvestmentForm() {
           quantity: q,
           avgCost: a,
           currency: defaultCurrency,
+          ...(createdAtIso ? { createdAt: createdAtIso } : {}),
         };
       } else {
         const b = parseFloat(balance);
@@ -195,6 +211,7 @@ export function AddInvestmentForm() {
           currency: "INR",
           ...(p !== undefined ? { principal: p } : {}),
           ...(r !== undefined ? { interestRate: r } : {}),
+          ...(createdAtIso ? { createdAt: createdAtIso } : {}),
         };
       }
       const url = editingId
@@ -256,16 +273,6 @@ export function AddInvestmentForm() {
                   : "Pick a category and enter the details."}
               </p>
             </div>
-            {editingId && (
-              <button
-                type="button"
-                onClick={resetForm}
-                className="flex items-center gap-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-medium text-muted transition hover:text-foreground"
-              >
-                <X className="h-3.5 w-3.5" />
-                Cancel
-              </button>
-            )}
           </div>
 
           <label className="mt-5 block text-xs font-medium uppercase tracking-wider text-muted">
@@ -430,20 +437,56 @@ export function AddInvestmentForm() {
             </div>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-6 flex w-full items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-indigo-500 to-emerald-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-indigo-500/40 disabled:opacity-60"
-          >
-            {submitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : editingId ? (
-              <Check className="h-4 w-4" />
-            ) : (
-              <Plus className="h-4 w-4" />
+          <div className="mt-4">
+            <Field
+              label={
+                isStockForm
+                  ? "Purchase date"
+                  : "Opening date"
+              }
+            >
+              <input
+                type="date"
+                value={purchaseDate}
+                onChange={(e) => setPurchaseDate(e.target.value)}
+                max={todayDateInputValue()}
+                className="input"
+              />
+              <p className="mt-1.5 text-[11px] text-muted">
+                {isStockForm
+                  ? "Used for short-term vs long-term tax classification. Leave blank to use today."
+                  : "When you opened this account. Optional — defaults to today."}
+              </p>
+            </Field>
+          </div>
+
+          <div className="mt-6 flex items-center gap-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="flex h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-gradient-to-br from-indigo-500 to-emerald-500 px-4 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition hover:shadow-indigo-500/40 disabled:opacity-60"
+            >
+              {submitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : editingId ? (
+                <Check className="h-4 w-4" />
+              ) : (
+                <Plus className="h-4 w-4" />
+              )}
+              {editingId ? "Save changes" : "Add Investment"}
+            </button>
+            {editingId && (
+              <button
+                type="button"
+                onClick={resetForm}
+                disabled={submitting}
+                className="flex h-10 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/5 px-4 text-sm font-semibold text-foreground/80 transition hover:bg-white/10 disabled:opacity-60"
+              >
+                <X className="h-4 w-4" />
+                Discard
+              </button>
             )}
-            {editingId ? "Save changes" : "Add Investment"}
-          </button>
+          </div>
         </div>
       </motion.form>
 
@@ -543,6 +586,9 @@ function InvestmentRow({
                     : ""
                 }`}
           </div>
+          <div className="text-[10px] uppercase tracking-wider text-muted/70">
+            {formatPurchaseDate(inv.createdAt)}
+          </div>
         </div>
       </div>
       <div className="flex items-center gap-1">
@@ -565,4 +611,35 @@ function InvestmentRow({
       </div>
     </li>
   );
+}
+
+/** Convert an ISO timestamp (or anything Date.parse handles) to the
+ * `YYYY-MM-DD` value an `<input type="date">` expects, in the user's local
+ * timezone. Returns "" if the input can't be parsed. */
+function toDateInputValue(iso: string | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "";
+  const d = new Date(t);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function todayDateInputValue(): string {
+  return toDateInputValue(new Date().toISOString());
+}
+
+const DATE_FMT = new Intl.DateTimeFormat("en-GB", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+});
+
+function formatPurchaseDate(iso: string | undefined): string {
+  if (!iso) return "—";
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return "—";
+  return `Since ${DATE_FMT.format(new Date(t))}`;
 }
