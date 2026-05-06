@@ -33,11 +33,10 @@ export function formatCompact(amount: number, currency: Currency): string {
 /**
  * Currency formatter that automatically switches to compact notation when the
  * value crosses a readability threshold.
- *   - INR: ≥ ₹1,00,000 (1L) renders as "₹1.2L" / "₹3.4Cr"
- *   - USD: ≥ $10,000     renders as "$12K" / "$1.2M"
+ *   - INR: ≥ ₹1,000  renders as "₹2.5K" / "₹1.2L" / "₹3.4Cr"
+ *   - USD: ≥ $10,000 renders as "$12K" / "$1.2M"
  * Below the threshold we keep the full grouped number so small values stay
- * exact. Pass an explicit `threshold` to override per-caller (e.g. P/L cells
- * use a lower threshold so ₹2,500 renders as "₹2.5K").
+ * exact. Pass an explicit `threshold` to override per-caller.
  */
 export function formatCurrencySmart(
   amount: number,
@@ -46,7 +45,7 @@ export function formatCurrencySmart(
 ): string {
   if (!Number.isFinite(amount)) return "—";
   const abs = Math.abs(amount);
-  const t = threshold ?? (currency === "INR" ? 100_000 : 10_000);
+  const t = threshold ?? (currency === "INR" ? 1_000 : 10_000);
   if (abs >= t) return formatCompact(amount, currency);
   return formatCurrency(amount, currency);
 }

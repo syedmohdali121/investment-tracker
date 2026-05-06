@@ -213,7 +213,7 @@ function CategoryBlock({
         </span>
       </div>
       <div className="overflow-x-auto overflow-y-hidden rounded-xl border border-white/5 bg-white/[0.02]">
-        <div className="hidden grid-cols-[28px_140px_70px_90px_130px_95px_100px_120px] gap-x-2 border-b border-white/5 px-3 py-2 text-left text-xs uppercase tracking-wider text-muted md:grid md:min-w-[793px]">
+        <div className="hidden grid-cols-[24px_minmax(120px,1fr)_56px_80px_104px_80px_minmax(72px,0.9fr)_minmax(88px,1fr)] gap-x-1.5 border-b border-white/5 px-3 py-2 text-left text-xs uppercase tracking-wider text-muted md:grid">
           <span />
           <span>Name</span>
           <span className="text-right">Qty</span>
@@ -335,7 +335,7 @@ function Row({
       value={inv}
       dragListener={false}
       dragControls={controls}
-      className="cursor-default px-3 py-3 text-sm hover:bg-white/[0.03] md:grid md:min-w-[793px] md:grid-cols-[28px_140px_70px_90px_130px_95px_100px_120px] md:items-center md:gap-x-2"
+      className="cursor-default px-3 py-3 text-sm hover:bg-white/[0.03] md:grid md:grid-cols-[24px_minmax(120px,1fr)_56px_80px_104px_80px_minmax(72px,0.9fr)_minmax(88px,1fr)] md:items-center md:gap-x-1.5"
       whileDrag={{
         scale: 1.01,
         boxShadow:
