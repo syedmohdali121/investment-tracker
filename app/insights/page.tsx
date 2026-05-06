@@ -19,7 +19,7 @@ import { InsightCard } from "@/components/insight-card";
 import { DrawdownChart } from "@/components/insights/drawdown-chart";
 import { MonthlyReturnsHeatmap } from "@/components/insights/monthly-heatmap";
 import { CagrLeaderboard } from "@/components/insights/cagr-leaderboard";
-import { CorrelationMatrix } from "@/components/insights/correlation-matrix";
+// import { CorrelationMatrix } from "@/components/insights/correlation-matrix";
 import { DividendsCard } from "@/components/insights/dividends-card";
 import { XirrLeaderboard } from "@/components/insights/xirr-leaderboard";
 import { TaxProjectionCard } from "@/components/insights/tax-projection";
@@ -277,6 +277,7 @@ export default function InsightsPage() {
             </section>
           )}
 
+          {/* Correlation pane — hidden for now, kept for future use.
           {(Object.keys(usHistoryMap).length >= 2 ||
             Object.keys(inHistoryMap).length >= 2) && (
             <section>
@@ -299,6 +300,7 @@ export default function InsightsPage() {
               </div>
             </section>
           )}
+          */}
 
           {Object.keys(dividendsMap).length > 0 && (
             <section>
