@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
-import type { Currency, Investment } from "@/lib/types";
+import type { Currency, Investment, Transaction } from "@/lib/types";
 import { SettingsProvider, useSettings } from "./settings-context";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { ShortcutsProvider } from "@/components/shortcuts-provider";
@@ -105,6 +105,20 @@ export function useInvestments() {
     queryFn: async () => {
       const res = await fetch("/api/investments");
       if (!res.ok) throw new Error("Failed to load investments");
+      return res.json();
+    },
+  });
+}
+
+export function useTransactions(investmentId?: string) {
+  return useQuery<{ transactions: Transaction[] }>({
+    queryKey: ["transactions", investmentId ?? "all"],
+    queryFn: async () => {
+      const url = investmentId
+        ? `/api/transactions?investmentId=${encodeURIComponent(investmentId)}`
+        : "/api/transactions";
+      const res = await fetch(url);
+      if (!res.ok) throw new Error("Failed to load transactions");
       return res.json();
     },
   });

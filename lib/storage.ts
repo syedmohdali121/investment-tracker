@@ -136,3 +136,35 @@ export async function reorderInvestments(ids: string[]): Promise<boolean> {
     return true;
   });
 }
+
+/**
+ * Rewrite the derived fields (`quantity`, `avgCost`, `createdAt`) of a
+ * stock holding after its transaction ledger changes. The transactions
+ * module is the source of truth post-backfill; this keeps the legacy
+ * "current state" record in sync for the rest of the app to consume.
+ */
+export async function applyDerivedHolding(
+  investmentId: string,
+  derived: { quantity: number; avgCost: number; firstBuyDate: string | null },
+): Promise<Investment | null> {
+  return withLock(async () => {
+    const store = await readStore();
+    const idx = store.investments.findIndex((i) => i.id === investmentId);
+    if (idx === -1) return null;
+    const current = store.investments[idx];
+    if (current.category !== "US_STOCK" && current.category !== "INDIAN_STOCK") {
+      return current;
+    }
+    const next: Investment = {
+      ...current,
+      quantity: derived.quantity,
+      avgCost: derived.avgCost,
+      createdAt: derived.firstBuyDate ?? current.createdAt,
+      updatedAt: new Date().toISOString(),
+    };
+    store.investments[idx] = next;
+    await writeStore(store);
+    return next;
+  });
+}
+

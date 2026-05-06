@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
+  ListOrdered,
   PlusCircle,
   Search,
   Settings as SettingsIcon,
@@ -19,6 +20,7 @@ import { useCommandPalette } from "./command-palette";
 const tabs = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/insights", label: "Insights", icon: Sparkles },
+  { href: "/transactions", label: "Transactions", icon: ListOrdered },
   { href: "/add", label: "Add Investment", icon: PlusCircle },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
