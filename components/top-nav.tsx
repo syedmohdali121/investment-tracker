@@ -16,6 +16,7 @@ import { cn } from "@/lib/cn";
 import { CurrencyToggle } from "./currency-toggle";
 import { ThemeToggle } from "./theme-toggle";
 import { useCommandPalette } from "./command-palette";
+import { UserPill } from "./user-pill";
 
 const tabs = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -118,6 +119,7 @@ export function TopNav() {
           </button>
           <CurrencyToggle />
           <ThemeToggle />
+          <UserPill />
         </div>
       </div>
     </header>

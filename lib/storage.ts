@@ -8,40 +8,48 @@ import {
   Store,
   StoreSchema,
 } from "./types";
+import { requireCurrentUserId } from "./user-context";
+import { userDataDir } from "./users";
 
-const DATA_DIR = path.join(process.cwd(), "data");
-const DATA_FILE = path.join(DATA_DIR, "investments.json");
+async function dataFile(): Promise<string> {
+  const uid = await requireCurrentUserId();
+  const dir = userDataDir(uid);
+  await fs.mkdir(dir, { recursive: true });
+  return path.join(dir, "investments.json");
+}
 
 let writeLock: Promise<unknown> = Promise.resolve();
 
-async function ensureFile(): Promise<void> {
-  await fs.mkdir(DATA_DIR, { recursive: true });
+async function ensureFile(): Promise<string> {
+  const file = await dataFile();
   try {
-    await fs.access(DATA_FILE);
+    await fs.access(file);
   } catch {
     const empty: Store = { investments: [], updatedAt: new Date().toISOString() };
-    await fs.writeFile(DATA_FILE, JSON.stringify(empty, null, 2), "utf8");
+    await fs.writeFile(file, JSON.stringify(empty, null, 2), "utf8");
   }
+  return file;
 }
 
 export async function readStore(): Promise<Store> {
-  await ensureFile();
-  const raw = await fs.readFile(DATA_FILE, "utf8");
+  const file = await ensureFile();
+  const raw = await fs.readFile(file, "utf8");
   try {
     const parsed = JSON.parse(raw);
     return StoreSchema.parse(parsed);
   } catch {
     const empty: Store = { investments: [], updatedAt: new Date().toISOString() };
-    await fs.writeFile(DATA_FILE, JSON.stringify(empty, null, 2), "utf8");
+    await fs.writeFile(file, JSON.stringify(empty, null, 2), "utf8");
     return empty;
   }
 }
 
 async function writeStore(store: Store): Promise<void> {
+  const file = await dataFile();
   const next: Store = { ...store, updatedAt: new Date().toISOString() };
-  const tmp = DATA_FILE + ".tmp";
+  const tmp = file + ".tmp";
   await fs.writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
-  await fs.rename(tmp, DATA_FILE);
+  await fs.rename(tmp, file);
 }
 
 function withLock<T>(fn: () => Promise<T>): Promise<T> {

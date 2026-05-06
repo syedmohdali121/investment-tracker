@@ -3,22 +3,18 @@ import { cookies } from "next/headers";
 import { z } from "zod";
 import {
   createSession,
-  hasPin,
   rateLimit,
   resetRateLimit,
   SESSION_COOKIE,
-  verifyPin,
 } from "@/lib/auth";
+import { verifyUserPin } from "@/lib/users";
 
-const Body = z.object({ pin: z.string().min(1) });
+const Body = z.object({
+  userId: z.string().min(1),
+  pin: z.string().min(1),
+});
 
 export async function POST(req: NextRequest) {
-  if (!(await hasPin())) {
-    return NextResponse.json(
-      { error: "No PIN set. Use /api/auth/setup." },
-      { status: 409 },
-    );
-  }
   const ip =
     req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
     req.headers.get("x-real-ip") ||
@@ -33,6 +29,7 @@ export async function POST(req: NextRequest) {
       },
     );
   }
+
   let body: unknown;
   try {
     body = await req.json();
@@ -43,12 +40,14 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid PIN" }, { status: 400 });
   }
-  const ok = await verifyPin(parsed.data.pin);
+
+  const ok = await verifyUserPin(parsed.data.userId, parsed.data.pin);
   if (!ok) {
     return NextResponse.json({ error: "Incorrect PIN" }, { status: 401 });
   }
   resetRateLimit(ip);
-  const token = createSession();
+
+  const token = createSession(parsed.data.userId);
   const jar = await cookies();
   jar.set(SESSION_COOKIE, token, {
     httpOnly: true,
