@@ -18,6 +18,7 @@ import { ChevronDown, LineChart as LineIcon, Scale } from "lucide-react";
 import { HistoryRange, useHistory } from "@/app/providers";
 import { StockInvestment } from "@/lib/types";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { sessionBoundsForCategory } from "@/lib/market-hours";
 import { cn } from "@/lib/cn";
 
 const RANGES: Array<{ value: HistoryRange; label: string }> = [
@@ -241,6 +242,22 @@ export function StockGrowthPane({
   const deltaPct =
     combinedStart > 0 ? (delta / combinedStart) * 100 : 0;
 
+  // For the 1D view, pin the X-axis to the full regular trading session of
+  // the holding's exchange so an in-progress session leaves blank space to
+  // the right of the latest bar instead of stretching to fill the chart.
+  // Outside 1D we let recharts auto-fit the data.
+  const xDomain = useMemo<[number | string, number | string]>(() => {
+    if (range !== "1d" || chartData.length === 0) return ["dataMin", "dataMax"];
+    const within = chartData[chartData.length - 1]?.t ?? Date.now();
+    const cat = stocks[0]?.category ?? "US_STOCK";
+    const bounds =
+      cat === "INDIAN_STOCK" || cat === "US_STOCK"
+        ? sessionBoundsForCategory(cat, within)
+        : null;
+    if (!bounds) return ["dataMin", "dataMax"];
+    return [bounds.start, bounds.end];
+  }, [range, chartData, stocks]);
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 6 }}
@@ -413,17 +430,32 @@ export function StockGrowthPane({
                         stroke="rgba(255,255,255,0.05)"
                         vertical={false}
                       />
-                      <XAxis
-                        dataKey="t"
-                        type="number"
-                        domain={["dataMin", "dataMax"]}
-                        tickFormatter={(t) => fmtTick(t, range)}
-                        stroke="rgba(255,255,255,0.3)"
-                        tick={{ fontSize: 11 }}
-                        tickLine={false}
-                        axisLine={false}
-                        minTickGap={40}
-                      />
+                      {range === "1d" ? (
+                        <XAxis
+                          dataKey="t"
+                          type="number"
+                          domain={xDomain}
+                          allowDataOverflow
+                          tickFormatter={(t) => fmtTick(t, range)}
+                          stroke="rgba(255,255,255,0.3)"
+                          tick={{ fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          minTickGap={40}
+                        />
+                      ) : (
+                        <XAxis
+                          dataKey="t"
+                          type="category"
+                          tickFormatter={(t) => fmtTick(Number(t), range)}
+                          stroke="rgba(255,255,255,0.3)"
+                          tick={{ fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          minTickGap={40}
+                          interval="preserveStartEnd"
+                        />
+                      )}
                       <YAxis
                         stroke="rgba(255,255,255,0.3)"
                         tick={{ fontSize: 11 }}
@@ -497,17 +529,32 @@ export function StockGrowthPane({
                         stroke="rgba(255,255,255,0.05)"
                         vertical={false}
                       />
-                      <XAxis
-                        dataKey="t"
-                        type="number"
-                        domain={["dataMin", "dataMax"]}
-                        tickFormatter={(t) => fmtTick(t, range)}
-                        stroke="rgba(255,255,255,0.3)"
-                        tick={{ fontSize: 11 }}
-                        tickLine={false}
-                        axisLine={false}
-                        minTickGap={40}
-                      />
+                      {range === "1d" ? (
+                        <XAxis
+                          dataKey="t"
+                          type="number"
+                          domain={xDomain}
+                          allowDataOverflow
+                          tickFormatter={(t) => fmtTick(t, range)}
+                          stroke="rgba(255,255,255,0.3)"
+                          tick={{ fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          minTickGap={40}
+                        />
+                      ) : (
+                        <XAxis
+                          dataKey="t"
+                          type="category"
+                          tickFormatter={(t) => fmtTick(Number(t), range)}
+                          stroke="rgba(255,255,255,0.3)"
+                          tick={{ fontSize: 11 }}
+                          tickLine={false}
+                          axisLine={false}
+                          minTickGap={40}
+                          interval="preserveStartEnd"
+                        />
+                      )}
                       <YAxis
                         dataKey="value"
                         stroke="rgba(255,255,255,0.3)"

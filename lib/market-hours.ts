@@ -185,3 +185,60 @@ export function formatCountdown(ms: number): string {
   if (hours >= 1) return `${hours}h ${minutes}m`;
   return `${minutes}m`;
 }
+
+/**
+ * Return the regular-session start/end (UTC ms) for the local calendar day
+ * — in the exchange's timezone — that contains `withinDayMs`. Useful for
+ * fixing X-axis domain on intraday charts so an in-progress session leaves
+ * empty space to the right instead of stretching to fill.
+ *
+ * For symbols, prefer `sessionBoundsForSymbol` which routes by suffix.
+ */
+export function sessionBoundsForCategory(
+  category: Category,
+  withinDayMs: number,
+): { start: number; end: number } | null {
+  const spec = SPECS[category];
+  if (!spec) return null;
+  const p = partsInTz(new Date(withinDayMs), spec.tz);
+  const start = wallClockToUtc(
+    p.y,
+    p.mo,
+    p.d,
+    spec.openHour,
+    spec.openMinute,
+    spec.tz,
+  );
+  const end = wallClockToUtc(
+    p.y,
+    p.mo,
+    p.d,
+    spec.closeHour,
+    spec.closeMinute,
+    spec.tz,
+  );
+  return { start, end };
+}
+
+/** As `sessionBoundsForCategory`, routed by Yahoo symbol suffix. */
+export function sessionBoundsForSymbol(
+  symbol: string,
+  withinDayMs: number,
+): { start: number; end: number } {
+  const sym = symbol.toUpperCase();
+  if (sym.endsWith(".NS") || sym.endsWith(".BO")) {
+    return (
+      sessionBoundsForCategory("INDIAN_STOCK", withinDayMs) ?? {
+        start: withinDayMs,
+        end: withinDayMs,
+      }
+    );
+  }
+  return (
+    sessionBoundsForCategory("US_STOCK", withinDayMs) ?? {
+      start: withinDayMs,
+      end: withinDayMs,
+    }
+  );
+}
+
