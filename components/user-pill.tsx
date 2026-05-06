@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, LogOut, RefreshCw } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, LogOut, RefreshCw, Settings as SettingsIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -95,6 +96,14 @@ export function UserPill() {
               <span className="text-sm font-medium">{user.name}</span>
             </div>
             <div className="border-t border-white/10">
+              <Link
+                href="/settings"
+                onClick={() => setOpen(false)}
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm text-muted transition hover:bg-white/5 hover:text-foreground"
+              >
+                <SettingsIcon className="h-3.5 w-3.5" />
+                Settings
+              </Link>
               <button
                 type="button"
                 onClick={logoutAndGoToLock}

@@ -7,7 +7,6 @@ import {
   ListOrdered,
   PlusCircle,
   Search,
-  Settings as SettingsIcon,
   Sparkles,
   TrendingUp,
 } from "lucide-react";
@@ -23,7 +22,6 @@ const tabs = [
   { href: "/insights", label: "Insights", icon: Sparkles },
   { href: "/transactions", label: "Transactions", icon: ListOrdered },
   { href: "/add", label: "Add Investment", icon: PlusCircle },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export function TopNav() {
