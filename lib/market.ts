@@ -254,6 +254,64 @@ export type IntradaySeries = {
 const INTRADAY_TTL_MS = 60_000;
 const intradayCache = new Map<string, CacheEntry<IntradaySeries>>();
 
+/**
+ * Given a calendar day (any millisecond value within the session) and a
+ * symbol, return the {start, end} of that day's regular trading session in
+ * UTC ms. Used as a fallback when Yahoo's response omits
+ * `currentTradingPeriod.regular`, which otherwise causes the sparkline to
+ * stretch evenly across the whole width regardless of elapsed time.
+ *
+ * `.NS` / `.BO` → NSE / BSE: 9:15–15:30 IST (UTC+5:30).
+ * Everything else falls back to NYSE/Nasdaq: 9:30–16:00 ET (UTC−4 in EDT,
+ * UTC−5 in EST). We approximate the DST boundary using the standard
+ * second-Sunday-of-March / first-Sunday-of-November rule rather than the
+ * exact 2 AM cutover; sparkline accuracy doesn't need second-level precision.
+ */
+function deriveSessionBounds(
+  symbol: string,
+  withinDayMs: number,
+): { start: number; end: number } {
+  const sym = symbol.toUpperCase();
+  if (sym.endsWith(".NS") || sym.endsWith(".BO")) {
+    // IST is UTC+5:30, no DST. 9:15 IST = 3:45 UTC; 15:30 IST = 10:00 UTC.
+    const d = new Date(withinDayMs);
+    const y = d.getUTCFullYear();
+    const m = d.getUTCMonth();
+    let day = d.getUTCDate();
+    // Bars after 18:30 UTC roll into next IST calendar day; for 5m bars in
+    // a 9:15–15:30 IST session that doesn't happen, but be defensive.
+    if (d.getUTCHours() < 3 || (d.getUTCHours() === 3 && d.getUTCMinutes() < 45)) {
+      // Bar is in the early morning UTC; previous IST calendar day.
+      day -= 1;
+    }
+    const start = Date.UTC(y, m, day, 3, 45, 0);
+    const end = Date.UTC(y, m, day, 10, 0, 0);
+    return { start, end };
+  }
+  // US default. Determine EDT vs EST for the calendar day.
+  const d = new Date(withinDayMs);
+  const y = d.getUTCFullYear();
+  const m = d.getUTCMonth();
+  const day = d.getUTCDate();
+  const offsetHrs = isUsDst(y, m, day) ? 4 : 5; // hours EAST to add to local→UTC
+  // 9:30 ET = 9:30 + offset UTC; 16:00 ET = 16:00 + offset UTC.
+  const start = Date.UTC(y, m, day, 9 + offsetHrs, 30, 0);
+  const end = Date.UTC(y, m, day, 16 + offsetHrs, 0, 0);
+  return { start, end };
+}
+
+function isUsDst(y: number, monthIdx: number, dayOfMonth: number): boolean {
+  // 2nd Sunday in March → 1st Sunday in November.
+  const startOfMarch = new Date(Date.UTC(y, 2, 1));
+  const dstStartDay = 8 + ((7 - startOfMarch.getUTCDay()) % 7); // 8..14
+  const startOfNov = new Date(Date.UTC(y, 10, 1));
+  const dstEndDay = 1 + ((7 - startOfNov.getUTCDay()) % 7); // 1..7
+  if (monthIdx < 2 || monthIdx > 10) return false;
+  if (monthIdx > 2 && monthIdx < 10) return true;
+  if (monthIdx === 2) return dayOfMonth >= dstStartDay;
+  return dayOfMonth < dstEndDay;
+}
+
 export async function getIntraday(symbol: string): Promise<IntradaySeries> {
   const now = Date.now();
   const cached = intradayCache.get(symbol);
@@ -320,10 +378,22 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
         ? result.meta.chartPreviousClose
         : null);
     const reg = result?.meta?.currentTradingPeriod?.regular;
-    const sessionStart =
+    let sessionStart =
       reg && typeof reg.start === "number" ? reg.start * 1000 : null;
-    const sessionEnd =
+    let sessionEnd =
       reg && typeof reg.end === "number" ? reg.end * 1000 : null;
+    // Yahoo occasionally omits `currentTradingPeriod` (especially shortly
+    // after open or for some Indian symbols). Without it, the sparkline
+    // can't map x by time and ends up stretching across the full width.
+    // Derive a sane fallback from known exchange hours so today-in-progress
+    // charts visibly fill only the elapsed fraction.
+    if (sessionStart === null || sessionEnd === null) {
+      const within =
+        points[points.length - 1]?.t ?? all[all.length - 1]?.t ?? now;
+      const fallback = deriveSessionBounds(symbol, within);
+      if (sessionStart === null) sessionStart = fallback.start;
+      if (sessionEnd === null) sessionEnd = fallback.end;
+    }
     const series: IntradaySeries = {
       symbol,
       currency,
