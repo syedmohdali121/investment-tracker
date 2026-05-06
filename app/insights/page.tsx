@@ -23,9 +23,10 @@ import { CagrLeaderboard } from "@/components/insights/cagr-leaderboard";
 import { DividendsCard } from "@/components/insights/dividends-card";
 import { XirrLeaderboard } from "@/components/insights/xirr-leaderboard";
 import { TaxProjectionCard } from "@/components/insights/tax-projection";
+import { StockGrowthPane } from "@/components/stock-growth-pane";
 import { CardSkeleton, PaneSkeleton } from "@/components/skeletons";
 import { combinePortfolioSeries } from "@/lib/analytics";
-import { isStock, type StockInvestment } from "@/lib/types";
+import { isStock, CATEGORY_META, type StockInvestment } from "@/lib/types";
 import type { HistorySeries, IntradaySeries } from "@/lib/market";
 
 export default function InsightsPage() {
@@ -176,6 +177,39 @@ export default function InsightsPage() {
         </div>
       ) : (
         <div className="space-y-8">
+          {(() => {
+            const us = stocks.filter((s) => s.category === "US_STOCK");
+            const ind = stocks.filter((s) => s.category === "INDIAN_STOCK");
+            if (us.length === 0 && ind.length === 0) return null;
+            return (
+              <section>
+                <h2 className="mb-3 text-sm font-semibold tracking-wide text-foreground/80">
+                  Growth over time
+                </h2>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {us.length > 0 && (
+                    <StockGrowthPane
+                      compact
+                      title="US Stocks"
+                      subtitle={`${us.length} holding${us.length === 1 ? "" : "s"} · USD`}
+                      stocks={us}
+                      accent={CATEGORY_META.US_STOCK.color}
+                    />
+                  )}
+                  {ind.length > 0 && (
+                    <StockGrowthPane
+                      compact
+                      title="Indian Stocks"
+                      subtitle={`${ind.length} holding${ind.length === 1 ? "" : "s"} · INR`}
+                      stocks={ind}
+                      accent={CATEGORY_META.INDIAN_STOCK.color}
+                    />
+                  )}
+                </div>
+              </section>
+            );
+          })()}
+
           {insights.length > 0 && (
             <section>
               <h2 className="mb-3 text-sm font-semibold tracking-wide text-foreground/80">

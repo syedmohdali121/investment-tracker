@@ -36,6 +36,8 @@ export function StockGrowthPane({
   accent,
   benchmark,
   prevCloseBySymbol,
+  defaultOpen = false,
+  compact = false,
 }: {
   title: string;
   subtitle?: string;
@@ -51,8 +53,16 @@ export function StockGrowthPane({
    * gap between yesterday's close and today's open).
    */
   prevCloseBySymbol?: Record<string, number | undefined>;
+  /** Start expanded. Implied when `compact` is true. */
+  defaultOpen?: boolean;
+  /**
+   * Compact variant for the Insights page: always-open (no chevron), Combined
+   * view only (no per-symbol tabs), no benchmark overlay, smaller chart and
+   * tighter padding. Range tabs (1D/5D/1Y/3Y/5Y) remain.
+   */
+  compact?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen || compact);
   const [range, setRange] = useState<HistoryRange>("1y");
   const [selected, setSelected] = useState<string>("__all__");
   const [compare, setCompare] = useState(false);
@@ -265,38 +275,60 @@ export function StockGrowthPane({
       transition={{ duration: 0.3 }}
       className="overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-white/[0.04] to-white/[0.01] shadow-xl"
     >
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-white/[0.02]"
-      >
-        <div className="flex items-center gap-3">
-          <span
-            className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-lg"
-            style={{ background: accent, boxShadow: `0 8px 24px -10px ${accent}` }}
-          >
-            <LineIcon className="h-4 w-4" />
-          </span>
-          <div>
-            <div className="text-sm font-semibold">{title}</div>
-            {subtitle && (
-              <div className="text-xs text-muted">{subtitle}</div>
-            )}
+      {compact ? (
+        <div className="flex w-full items-center justify-between gap-3 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-lg"
+              style={{ background: accent, boxShadow: `0 8px 24px -10px ${accent}` }}
+            >
+              <LineIcon className="h-4 w-4" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold">{title}</div>
+              {subtitle && (
+                <div className="text-xs text-muted">{subtitle}</div>
+              )}
+            </div>
           </div>
-        </div>
-        <div className="flex items-center gap-3">
           <span className="hidden rounded-md bg-white/5 px-2 py-1 text-[11px] font-medium text-muted sm:block">
             {stocks.length} holding{stocks.length === 1 ? "" : "s"}
           </span>
-          <motion.span
-            animate={{ rotate: open ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-muted"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </motion.span>
         </div>
-      </button>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center justify-between gap-3 px-5 py-4 text-left transition hover:bg-white/[0.02]"
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="flex h-9 w-9 items-center justify-center rounded-xl text-white shadow-lg"
+              style={{ background: accent, boxShadow: `0 8px 24px -10px ${accent}` }}
+            >
+              <LineIcon className="h-4 w-4" />
+            </span>
+            <div>
+              <div className="text-sm font-semibold">{title}</div>
+              {subtitle && (
+                <div className="text-xs text-muted">{subtitle}</div>
+              )}
+            </div>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="hidden rounded-md bg-white/5 px-2 py-1 text-[11px] font-medium text-muted sm:block">
+              {stocks.length} holding{stocks.length === 1 ? "" : "s"}
+            </span>
+            <motion.span
+              animate={{ rotate: open ? 180 : 0 }}
+              transition={{ duration: 0.2 }}
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-white/10 text-muted"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </motion.span>
+          </div>
+        </button>
+      )}
 
       <AnimatePresence initial={false}>
         {open && (
@@ -309,27 +341,33 @@ export function StockGrowthPane({
             className="border-t border-white/5"
           >
             <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-4">
-              <div className="flex flex-wrap items-center gap-1">
-                <TabButton
-                  active={selected === "__all__"}
-                  onClick={() => setSelected("__all__")}
-                  accent={accent}
-                >
+              {compact ? (
+                <div className="text-xs uppercase tracking-wider text-muted">
                   Combined
-                </TabButton>
-                {symbols.map((s) => (
+                </div>
+              ) : (
+                <div className="flex flex-wrap items-center gap-1">
                   <TabButton
-                    key={s}
-                    active={selected === s}
-                    onClick={() => setSelected(s)}
+                    active={selected === "__all__"}
+                    onClick={() => setSelected("__all__")}
                     accent={accent}
                   >
-                    {s}
+                    Combined
                   </TabButton>
-                ))}
-              </div>
+                  {symbols.map((s) => (
+                    <TabButton
+                      key={s}
+                      active={selected === s}
+                      onClick={() => setSelected(s)}
+                      accent={accent}
+                    >
+                      {s}
+                    </TabButton>
+                  ))}
+                </div>
+              )}
               <div className="flex items-center gap-2">
-                {benchmark && (
+                {!compact && benchmark && (
                   <button
                     type="button"
                     onClick={() => setCompare((v) => !v)}
@@ -411,7 +449,7 @@ export function StockGrowthPane({
                   )}
                 </div>
               </div>
-              <div className="h-[260px] w-full">
+              <div className={cn("w-full", compact ? "h-[180px]" : "h-[260px]")}>
                 {historyQ.isLoading ? (
                   <div className="flex h-full items-center justify-center text-sm text-muted">
                     Loading history…
@@ -595,11 +633,13 @@ export function StockGrowthPane({
                   </ResponsiveContainer>
                 )}
               </div>
-              <p className="mt-2 text-[11px] text-muted">
-                Projection assumes you held your{" "}
-                <span className="font-medium text-foreground/80">current</span>{" "}
-                quantity throughout the period.
-              </p>
+              {!compact && (
+                <p className="mt-2 text-[11px] text-muted">
+                  Projection assumes you held your{" "}
+                  <span className="font-medium text-foreground/80">current</span>{" "}
+                  quantity throughout the period.
+                </p>
+              )}
             </div>
           </motion.div>
         )}
