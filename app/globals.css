@@ -25,6 +25,8 @@
       radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.18), transparent 60%),
       radial-gradient(900px 500px at 110% 10%, rgba(16, 185, 129, 0.15), transparent 60%),
       var(--color-background);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
     color: var(--color-foreground);
     min-height: 100vh;
   }
@@ -34,6 +36,8 @@
       radial-gradient(1200px 600px at 10% -10%, rgba(99, 102, 241, 0.12), transparent 60%),
       radial-gradient(900px 500px at 110% 10%, rgba(16, 185, 129, 0.10), transparent 60%),
       var(--color-background);
+    background-repeat: no-repeat;
+    background-attachment: fixed;
   }
 }
 
