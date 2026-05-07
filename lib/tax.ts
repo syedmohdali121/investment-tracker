@@ -34,7 +34,10 @@ export const DEFAULT_TAX_RATES: TaxRates = {
 const ONE_YEAR_MS = 365.25 * 24 * 60 * 60 * 1000;
 
 export function regimeOf(stock: StockInvestment): TaxRegime {
-  return stock.category === "INDIAN_STOCK" ? "INDIA" : "US";
+  if (stock.category === "INDIAN_STOCK" || stock.category === "MUTUAL_FUND") {
+    return "INDIA";
+  }
+  return "US";
 }
 
 export function bucketOf(stock: StockInvestment, asOf = Date.now()): TaxBucket {

@@ -1,14 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import {
+  Banknote,
   Briefcase,
+  Building2,
   Check,
   CircleDollarSign,
+  Coins,
+  FileText,
   Flag,
   Landmark,
+  LineChart,
   Loader2,
   Pencil,
   PiggyBank,
@@ -48,16 +53,46 @@ const CATEGORY_OPTIONS: Array<{
     description: "e.g. RELIANCE.NS, TCS.NS",
   },
   {
+    value: "MUTUAL_FUND",
+    label: "Mutual Fund",
+    icon: LineChart,
+    description: "Indian MFs (AMFI NAV)",
+  },
+  {
     value: "EPF",
     label: "EPF",
     icon: Landmark,
-    description: "Employee Provident Fund balance",
+    description: "Employee Provident Fund",
   },
   {
     value: "PPF",
     label: "PPF",
     icon: PiggyBank,
-    description: "Public Provident Fund balance",
+    description: "Public Provident Fund",
+  },
+  {
+    value: "FD",
+    label: "Fixed Deposit",
+    icon: Banknote,
+    description: "Bank FD / RD with maturity",
+  },
+  {
+    value: "BONDS",
+    label: "Bonds",
+    icon: FileText,
+    description: "G-Secs, corporate bonds",
+  },
+  {
+    value: "GOLD",
+    label: "Gold",
+    icon: Coins,
+    description: "SGB, physical, digital gold",
+  },
+  {
+    value: "REAL_ESTATE",
+    label: "Real Estate",
+    icon: Building2,
+    description: "Property valuation",
   },
 ];
 
@@ -80,16 +115,65 @@ export function AddInvestmentForm() {
   const [principal, setPrincipal] = useState("");
   const [interestRate, setInterestRate] = useState("");
   const [purchaseDate, setPurchaseDate] = useState("");
+  const [maturityDate, setMaturityDate] = useState("");
+  const [cashCurrency, setCashCurrency] = useState<"USD" | "INR">("INR");
   const [preview, setPreview] = useState<SymbolPreview | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [mfQuery, setMfQuery] = useState("");
+  const [mfResults, setMfResults] = useState<
+    Array<{ schemeCode: string; schemeName: string; nav: number }>
+  >([]);
+  const [mfSearching, setMfSearching] = useState(false);
+  const mfDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const isStockForm = category === "US_STOCK" || category === "INDIAN_STOCK";
-  const defaultCurrency = category === "US_STOCK" ? "USD" : "INR";
+  const isStockForm =
+    category === "US_STOCK" ||
+    category === "INDIAN_STOCK" ||
+    category === "MUTUAL_FUND";
+  const isMfForm = category === "MUTUAL_FUND";
+  const cashLockedToInr = category === "EPF" || category === "PPF";
+  const showMaturity = category === "FD" || category === "BONDS";
+  const showInterestRate =
+    category === "EPF" ||
+    category === "PPF" ||
+    category === "FD" ||
+    category === "BONDS";
+  const defaultCurrency =
+    category === "US_STOCK"
+      ? "USD"
+      : category === "INDIAN_STOCK" || category === "MUTUAL_FUND"
+        ? "INR"
+        : cashCurrency;
   const stockLocale = defaultCurrency === "INR" ? "en-IN" : "en-US";
 
   const looksLikeStock = useMemo(() => symbol.trim().length >= 1, [symbol]);
+
+  useEffect(() => {
+    if (!isMfForm || mfQuery.trim().length < 2) {
+      setMfResults([]);
+      return;
+    }
+    if (mfDebounceRef.current) clearTimeout(mfDebounceRef.current);
+    mfDebounceRef.current = setTimeout(async () => {
+      setMfSearching(true);
+      try {
+        const res = await fetch(
+          `/api/mf-search?q=${encodeURIComponent(mfQuery.trim())}`,
+        );
+        const json = await res.json();
+        setMfResults(json.results ?? []);
+      } catch {
+        setMfResults([]);
+      } finally {
+        setMfSearching(false);
+      }
+    }, 300);
+    return () => {
+      if (mfDebounceRef.current) clearTimeout(mfDebounceRef.current);
+    };
+  }, [mfQuery, isMfForm]);
 
   function resetForm() {
     setSymbol("");
@@ -100,16 +184,18 @@ export function AddInvestmentForm() {
     setPrincipal("");
     setInterestRate("");
     setPurchaseDate("");
+    setMaturityDate("");
+    setCashCurrency("INR");
     setPreview(null);
     setEditingId(null);
+    setMfQuery("");
+    setMfResults([]);
   }
 
   function startEdit(inv: Investment) {
     setEditingId(inv.id);
     setCategory(inv.category);
     setPreview(null);
-    // Pre-fill the date picker with the existing purchase date so users
-    // can correct it. Date input expects YYYY-MM-DD in local time.
     setPurchaseDate(toDateInputValue(inv.createdAt));
     if (isStock(inv)) {
       setSymbol(inv.symbol);
@@ -119,6 +205,9 @@ export function AddInvestmentForm() {
       setBalance("");
       setPrincipal("");
       setInterestRate("");
+      setMaturityDate("");
+      setMfQuery("");
+      setMfResults([]);
     } else {
       setSymbol("");
       setQuantity("");
@@ -131,6 +220,8 @@ export function AddInvestmentForm() {
       setInterestRate(
         inv.interestRate !== undefined ? String(inv.interestRate) : "",
       );
+      setMaturityDate(toDateInputValue(inv.maturityDate));
+      setCashCurrency(inv.currency === "USD" ? "USD" : "INR");
     }
     if (typeof window !== "undefined") {
       window.scrollTo({ top: 0, behavior: "smooth" });
@@ -204,13 +295,22 @@ export function AddInvestmentForm() {
           toast.error("Interest rate must be a non-negative number.");
           return;
         }
+        let maturityIso: string | undefined;
+        if (showMaturity && maturityDate.trim()) {
+          const [my, mm, md] = maturityDate.split("-").map(Number);
+          if (my && mm && md) {
+            maturityIso = new Date(my, mm - 1, md, 12, 0, 0).toISOString();
+          }
+        }
+        const currency = cashLockedToInr ? "INR" : cashCurrency;
         body = {
           category,
           label: label.trim(),
           balance: b,
-          currency: "INR",
+          currency,
           ...(p !== undefined ? { principal: p } : {}),
           ...(r !== undefined ? { interestRate: r } : {}),
+          ...(maturityIso ? { maturityDate: maturityIso } : {}),
           ...(createdAtIso ? { createdAt: createdAtIso } : {}),
         };
       }
@@ -278,7 +378,7 @@ export function AddInvestmentForm() {
           <label className="mt-5 block text-xs font-medium uppercase tracking-wider text-muted">
             Category
           </label>
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
             {CATEGORY_OPTIONS.map((opt) => {
               const Icon = opt.icon;
               const active = category === opt.value;
@@ -322,14 +422,64 @@ export function AddInvestmentForm() {
 
           {isStockForm ? (
             <div className="mt-5 space-y-4">
-              <Field label="Symbol">
+              {isMfForm && !editingId && (
+                <Field label="Search fund">
+                  <input
+                    value={mfQuery}
+                    onChange={(e) => setMfQuery(e.target.value)}
+                    placeholder="e.g. Parag Parikh Flexi Cap"
+                    className="input"
+                    autoComplete="off"
+                  />
+                  {mfSearching && (
+                    <div className="mt-1 flex items-center gap-1 text-xs text-muted">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Searching…
+                    </div>
+                  )}
+                  {mfResults.length > 0 && (
+                    <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02]">
+                      {mfResults.map((r) => (
+                        <button
+                          type="button"
+                          key={r.schemeCode}
+                          onClick={() => {
+                            setSymbol(r.schemeCode);
+                            setPreview({
+                              symbol: r.schemeCode,
+                              price: r.nav,
+                              currency: "INR",
+                              name: r.schemeName,
+                            });
+                            setMfQuery(r.schemeName);
+                            setMfResults([]);
+                          }}
+                          className="block w-full border-b border-white/5 px-3 py-2 text-left text-xs transition last:border-0 hover:bg-white/5"
+                        >
+                          <div className="truncate font-medium">{r.schemeName}</div>
+                          <div className="text-[10px] text-muted">
+                            Code {r.schemeCode} · NAV ₹{r.nav.toFixed(2)}
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <p className="mt-1.5 text-[11px] text-muted">
+                    Powered by AMFI&apos;s daily NAV file. Type at least 2 chars.
+                  </p>
+                </Field>
+              )}
+              <Field label={isMfForm ? "AMFI Scheme Code" : "Symbol"}>
                 <div className="flex items-center gap-2">
                   <input
                     value={symbol}
                     onChange={(e) => setSymbol(e.target.value)}
                     onBlur={fetchPreview}
                     placeholder={
-                      category === "US_STOCK" ? "e.g. AAPL" : "e.g. RELIANCE.NS"
+                      category === "US_STOCK"
+                        ? "e.g. AAPL"
+                        : category === "INDIAN_STOCK"
+                          ? "e.g. RELIANCE.NS"
+                          : "e.g. 120503"
                     }
                     className="input"
                     autoComplete="off"
@@ -370,7 +520,7 @@ export function AddInvestmentForm() {
                 )}
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Quantity">
+                <Field label={isMfForm ? "Units" : "Quantity"}>
                   <NumericInput
                     value={quantity}
                     onChange={setQuantity}
@@ -378,7 +528,7 @@ export function AddInvestmentForm() {
                     placeholder="0"
                   />
                 </Field>
-                <Field label={`Avg Cost (${defaultCurrency})`}>
+                <Field label={`${isMfForm ? "Avg NAV" : "Avg Cost"} (${defaultCurrency})`}>
                   <NumericInput
                     value={avgCost}
                     onChange={setAvgCost}
@@ -394,45 +544,73 @@ export function AddInvestmentForm() {
                 <input
                   value={label}
                   onChange={(e) => setLabel(e.target.value)}
-                  placeholder={
-                    category === "EPF"
-                      ? "e.g. EPF – Employer A"
-                      : "e.g. PPF – SBI"
-                  }
+                  placeholder={labelPlaceholder(category)}
                   className="input"
                 />
               </Field>
-              <Field label="Current Balance (INR)">
+              {!cashLockedToInr && (
+                <Field label="Currency">
+                  <div className="flex gap-2">
+                    {(["INR", "USD"] as const).map((c) => (
+                      <button
+                        type="button"
+                        key={c}
+                        onClick={() => setCashCurrency(c)}
+                        className={cn(
+                          "h-10 flex-1 rounded-lg border text-sm font-medium transition",
+                          cashCurrency === c
+                            ? "border-indigo-400/40 bg-indigo-500/10 text-foreground"
+                            : "border-white/10 bg-white/[0.02] text-muted hover:text-foreground",
+                        )}
+                      >
+                        {c}
+                      </button>
+                    ))}
+                  </div>
+                </Field>
+              )}
+              <Field label={`Current Value (${defaultCurrency})`}>
                 <NumericInput
                   value={balance}
                   onChange={setBalance}
-                  locale="en-IN"
+                  locale={defaultCurrency === "INR" ? "en-IN" : "en-US"}
                   placeholder="0"
                 />
               </Field>
               <div className="grid grid-cols-2 gap-3">
-                <Field label="Principal (INR) — optional">
+                <Field label={`Principal (${defaultCurrency}) — optional`}>
                   <NumericInput
                     value={principal}
                     onChange={setPrincipal}
-                    locale="en-IN"
-                    placeholder="Total contributed"
+                    locale={defaultCurrency === "INR" ? "en-IN" : "en-US"}
+                    placeholder="Total invested"
                   />
                 </Field>
-                <Field label="Interest Rate % — optional">
-                  <NumericInput
-                    value={interestRate}
-                    onChange={setInterestRate}
-                    locale="en-US"
-                    placeholder={category === "EPF" ? "e.g. 8.25" : "e.g. 7.1"}
-                  />
-                </Field>
+                {showInterestRate && (
+                  <Field label="Interest Rate % — optional">
+                    <NumericInput
+                      value={interestRate}
+                      onChange={setInterestRate}
+                      locale="en-US"
+                      placeholder={interestRatePlaceholder(category)}
+                    />
+                  </Field>
+                )}
               </div>
+              {showMaturity && (
+                <Field label="Maturity date — optional">
+                  <input
+                    type="date"
+                    value={maturityDate}
+                    onChange={(e) => setMaturityDate(e.target.value)}
+                    className="input"
+                  />
+                </Field>
+              )}
               <p className="text-xs text-muted">
-                Enter the total amount you&apos;ve contributed as{" "}
+                Enter what you originally invested as{" "}
                 <span className="font-medium text-foreground/80">Principal</span>{" "}
-                to see profit on the dashboard. Interest rate is for reference
-                and is optional.
+                to see profit on the dashboard.
               </p>
             </div>
           )}
@@ -642,4 +820,38 @@ function formatPurchaseDate(iso: string | undefined): string {
   const t = Date.parse(iso);
   if (!Number.isFinite(t)) return "—";
   return `Since ${DATE_FMT.format(new Date(t))}`;
+}
+
+function labelPlaceholder(cat: Category): string {
+  switch (cat) {
+    case "EPF":
+      return "e.g. EPF – Employer A";
+    case "PPF":
+      return "e.g. PPF – SBI";
+    case "FD":
+      return "e.g. HDFC FD #2034";
+    case "BONDS":
+      return "e.g. RBI Floating Rate Bond";
+    case "GOLD":
+      return "e.g. SGB Tranche IV";
+    case "REAL_ESTATE":
+      return "e.g. Apartment – Bangalore";
+    default:
+      return "Label";
+  }
+}
+
+function interestRatePlaceholder(cat: Category): string {
+  switch (cat) {
+    case "EPF":
+      return "e.g. 8.25";
+    case "PPF":
+      return "e.g. 7.1";
+    case "FD":
+      return "e.g. 7.5";
+    case "BONDS":
+      return "e.g. 7.95";
+    default:
+      return "0";
+  }
 }

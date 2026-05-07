@@ -10,6 +10,7 @@ const HEADERS = [
   "balance",
   "principal",
   "interestRate",
+  "maturityDate",
   "currency",
   "createdAt",
   "updatedAt",
@@ -30,6 +31,7 @@ export function investmentsToCsv(investments: Investment[]): string {
       balance: isStock(inv) ? undefined : inv.balance,
       principal: isStock(inv) ? undefined : inv.principal,
       interestRate: isStock(inv) ? undefined : inv.interestRate,
+      maturityDate: isStock(inv) ? undefined : inv.maturityDate,
       currency: inv.currency,
       createdAt: inv.createdAt,
       updatedAt: inv.updatedAt,
@@ -106,7 +108,9 @@ export function rowToInvestmentInput(
 ): Record<string, unknown> | { error: string } {
   const category = row.category?.toUpperCase();
   if (!category) return { error: "Missing category" };
-  if (category === "US_STOCK" || category === "INDIAN_STOCK") {
+  const STOCK_LIKE = new Set(["US_STOCK", "INDIAN_STOCK", "MUTUAL_FUND"]);
+  const CASH_LIKE = new Set(["EPF", "PPF", "FD", "BONDS", "GOLD", "REAL_ESTATE"]);
+  if (STOCK_LIKE.has(category)) {
     const symbol = row.symbol?.trim().toUpperCase();
     const quantity = numOrNaN(row.quantity);
     const avgCost = numOrNaN(row.avgCost);
@@ -123,7 +127,7 @@ export function rowToInvestmentInput(
             : "INR";
     return { category, symbol, quantity, avgCost, currency };
   }
-  if (category === "EPF" || category === "PPF") {
+  if (CASH_LIKE.has(category)) {
     const label = row.label?.trim();
     const balance = numOrNaN(row.balance);
     if (!label) return { error: "Missing label" };
@@ -140,13 +144,24 @@ export function rowToInvestmentInput(
       return { error: "Invalid principal" };
     if (interestRate !== undefined && !(interestRate >= 0))
       return { error: "Invalid interestRate" };
+    const currency =
+      category === "EPF" || category === "PPF"
+        ? "INR"
+        : row.currency?.toUpperCase() === "USD"
+          ? "USD"
+          : "INR";
+    const maturityDate =
+      row.maturityDate && row.maturityDate.trim() !== ""
+        ? row.maturityDate.trim()
+        : undefined;
     return {
       category,
       label,
       balance,
-      currency: "INR",
+      currency,
       ...(principal !== undefined ? { principal } : {}),
       ...(interestRate !== undefined ? { interestRate } : {}),
+      ...(maturityDate !== undefined ? { maturityDate } : {}),
     };
   }
   return { error: `Unknown category: ${category}` };

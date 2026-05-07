@@ -1,5 +1,6 @@
 import YahooFinance from "yahoo-finance2";
 import type { Currency } from "./types";
+import { isAmfiSchemeCode } from "./types";
 
 const yahooFinance = new YahooFinance();
 
@@ -21,9 +22,58 @@ export type Quote = {
 type CacheEntry<T> = { value: T; expires: number };
 const QUOTE_TTL_MS = 30_000;
 const FX_TTL_MS = 60_000;
+const AMFI_QUOTE_TTL_MS = 60 * 60_000; // NAV updates once per day; 1h is plenty
+const AMFI_NAV_TTL_MS = 60 * 60_000;
 
 const quoteCache = new Map<string, CacheEntry<Quote>>();
 let fxCache: CacheEntry<number> | null = null;
+
+type AmfiEntry = { schemeName: string; nav: number };
+let amfiNavCache: CacheEntry<Map<string, AmfiEntry>> | null = null;
+
+async function getAmfiNavMap(): Promise<Map<string, AmfiEntry>> {
+  const now = Date.now();
+  if (amfiNavCache && amfiNavCache.expires > now) return amfiNavCache.value;
+  const res = await fetch("https://portal.amfiindia.com/spages/NAVAll.txt", {
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`AMFI NAV fetch failed: ${res.status}`);
+  const text = await res.text();
+  const map = new Map<string, AmfiEntry>();
+  for (const line of text.split(/\r?\n/)) {
+    // Format: SchemeCode;ISINGrowth;ISINReinvest;SchemeName;NAV;Date
+    if (!line || line.startsWith("Scheme Code") || !line.includes(";")) continue;
+    const parts = line.split(";");
+    if (parts.length < 5) continue;
+    const code = parts[0].trim();
+    const name = parts[3].trim();
+    const navStr = parts[4].trim();
+    if (!/^\d+$/.test(code)) continue;
+    const nav = Number(navStr);
+    if (!Number.isFinite(nav) || nav <= 0) continue;
+    map.set(code, { schemeName: name, nav });
+  }
+  amfiNavCache = { value: map, expires: now + AMFI_NAV_TTL_MS };
+  return map;
+}
+
+/** Search AMFI scheme list by substring of name. Used by add-investment lookup. */
+export async function searchMutualFunds(
+  query: string,
+  limit = 15,
+): Promise<Array<{ schemeCode: string; schemeName: string; nav: number }>> {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return [];
+  const map = await getAmfiNavMap();
+  const results: Array<{ schemeCode: string; schemeName: string; nav: number }> = [];
+  for (const [code, entry] of map) {
+    if (entry.schemeName.toLowerCase().includes(q)) {
+      results.push({ schemeCode: code, schemeName: entry.schemeName, nav: entry.nav });
+      if (results.length >= limit) break;
+    }
+  }
+  return results;
+}
 
 function normalizeCurrency(c: string | undefined): Currency {
   if (!c) return "USD";
@@ -36,14 +86,42 @@ export async function getQuotes(symbols: string[]): Promise<Quote[]> {
   const unique = Array.from(new Set(symbols.map((s) => s.trim()).filter(Boolean)));
   const now = Date.now();
   const toFetch: string[] = [];
+  const amfiCodes: string[] = [];
   const out: Quote[] = [];
 
   for (const sym of unique) {
     const cached = quoteCache.get(sym);
     if (cached && cached.expires > now) {
       out.push(cached.value);
+    } else if (isAmfiSchemeCode(sym)) {
+      amfiCodes.push(sym);
     } else {
       toFetch.push(sym);
+    }
+  }
+
+  if (amfiCodes.length > 0) {
+    try {
+      const navMap = await getAmfiNavMap();
+      for (const code of amfiCodes) {
+        const entry = navMap.get(code);
+        if (!entry) continue;
+        const q: Quote = {
+          symbol: code,
+          price: entry.nav,
+          currency: "INR",
+          name: entry.schemeName,
+          previousClose: entry.nav,
+        };
+        quoteCache.set(code, { value: q, expires: now + AMFI_QUOTE_TTL_MS });
+        out.push(q);
+      }
+    } catch (err) {
+      console.error("[market] AMFI quotes error:", err);
+      for (const code of amfiCodes) {
+        const stale = quoteCache.get(code);
+        if (stale) out.push(stale.value);
+      }
     }
   }
 
@@ -164,6 +242,13 @@ export async function getHistory(
   const now = Date.now();
   const cached = historyCache.get(cacheKey);
   if (cached && cached.expires > now) return cached.value;
+
+  // AMFI doesn't expose historical NAVs through the daily file — return empty.
+  if (isAmfiSchemeCode(symbol)) {
+    const empty: HistorySeries = { symbol, currency: "INR", points: [] };
+    historyCache.set(cacheKey, { value: empty, expires: now + historyTtl(range) });
+    return empty;
+  }
 
   const { period1, interval, includePrePost } = rangeToParams(range);
   try {
@@ -316,6 +401,21 @@ export async function getIntraday(symbol: string): Promise<IntradaySeries> {
   const now = Date.now();
   const cached = intradayCache.get(symbol);
   if (cached && cached.expires > now) return cached.value;
+
+  // AMFI mutual funds don't have intraday data — NAV publishes once per day.
+  if (isAmfiSchemeCode(symbol)) {
+    const empty: IntradaySeries = {
+      symbol,
+      currency: "INR",
+      points: [],
+      prevClose: null,
+      sessionDate: null,
+      sessionStart: null,
+      sessionEnd: null,
+    };
+    intradayCache.set(symbol, { value: empty, expires: now + INTRADAY_TTL_MS });
+    return empty;
+  }
 
   // 7-day lookback @ 5m guarantees we capture the most recent session
   // even over long weekends / holidays. includePrePost=false trims

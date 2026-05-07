@@ -1,6 +1,16 @@
 import { z } from "zod";
 
-export const CATEGORIES = ["US_STOCK", "INDIAN_STOCK", "EPF", "PPF"] as const;
+export const CATEGORIES = [
+  "US_STOCK",
+  "INDIAN_STOCK",
+  "MUTUAL_FUND",
+  "EPF",
+  "PPF",
+  "FD",
+  "BONDS",
+  "GOLD",
+  "REAL_ESTATE",
+] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_META: Record<
@@ -9,8 +19,13 @@ export const CATEGORY_META: Record<
 > = {
   US_STOCK: { label: "US Stocks", color: "#6366f1", short: "US" },
   INDIAN_STOCK: { label: "Indian Stocks", color: "#10b981", short: "IN" },
+  MUTUAL_FUND: { label: "Mutual Funds", color: "#14b8a6", short: "MF" },
   EPF: { label: "EPF", color: "#f59e0b", short: "EPF" },
   PPF: { label: "PPF", color: "#ec4899", short: "PPF" },
+  FD: { label: "Fixed Deposit", color: "#06b6d4", short: "FD" },
+  BONDS: { label: "Bonds", color: "#8b5cf6", short: "BND" },
+  GOLD: { label: "Gold", color: "#eab308", short: "AU" },
+  REAL_ESTATE: { label: "Real Estate", color: "#a16207", short: "RE" },
 };
 
 export const CurrencySchema = z.enum(["USD", "INR"]);
@@ -24,7 +39,7 @@ const BaseSchema = z.object({
 });
 
 export const StockInvestmentSchema = BaseSchema.extend({
-  category: z.enum(["US_STOCK", "INDIAN_STOCK"]),
+  category: z.enum(["US_STOCK", "INDIAN_STOCK", "MUTUAL_FUND"]),
   symbol: z.string().min(1).transform((s) => s.trim().toUpperCase()),
   quantity: z.number().positive(),
   avgCost: z.number().nonnegative(),
@@ -32,12 +47,14 @@ export const StockInvestmentSchema = BaseSchema.extend({
 });
 
 export const CashInvestmentSchema = BaseSchema.extend({
-  category: z.enum(["EPF", "PPF"]),
+  category: z.enum(["EPF", "PPF", "FD", "BONDS", "GOLD", "REAL_ESTATE"]),
   label: z.string().min(1),
   balance: z.number().nonnegative(),
-  currency: z.literal("INR"),
+  currency: CurrencySchema,
   principal: z.number().nonnegative().optional(),
   interestRate: z.number().nonnegative().optional(),
+  /** Optional maturity date (ISO) — used for FD/Bonds. */
+  maturityDate: z.string().optional(),
 });
 
 export const InvestmentSchema = z.discriminatedUnion("category", [
@@ -75,7 +92,20 @@ export const StoreSchema = z.object({
 export type Store = z.infer<typeof StoreSchema>;
 
 export function isStock(inv: Investment): inv is StockInvestment {
-  return inv.category === "US_STOCK" || inv.category === "INDIAN_STOCK";
+  return (
+    inv.category === "US_STOCK" ||
+    inv.category === "INDIAN_STOCK" ||
+    inv.category === "MUTUAL_FUND"
+  );
+}
+
+export function isMutualFund(inv: Investment): inv is StockInvestment {
+  return inv.category === "MUTUAL_FUND";
+}
+
+/** True if symbol looks like an AMFI scheme code (pure digits). */
+export function isAmfiSchemeCode(symbol: string): boolean {
+  return /^\d{4,7}$/.test(symbol.trim());
 }
 
 // ---- Transactions -----------------------------------------------------------
