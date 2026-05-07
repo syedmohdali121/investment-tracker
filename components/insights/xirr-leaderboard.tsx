@@ -6,6 +6,7 @@ import { xirr, type CashFlow } from "@/lib/analytics";
 import { isStock, type Currency, type Investment, type StockInvestment } from "@/lib/types";
 import { convert, type PriceMap } from "@/lib/valuation";
 import type { DividendSeries } from "@/app/providers";
+import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/cn";
 import { formatCurrencySmart } from "@/lib/format";
 
@@ -33,9 +34,9 @@ export function XirrLeaderboard({
   usdInr: number;
   display: Currency;
 }) {
+  const now = useNow();
   const { rows, portfolio } = useMemo(() => {
     const stocks = investments.filter(isStock) as StockInvestment[];
-    const now = Date.now();
     type Row = {
       symbol: string;
       currency: Currency;
@@ -90,7 +91,7 @@ export function XirrLeaderboard({
     rs.sort((a, b) => (b.irr ?? -Infinity) - (a.irr ?? -Infinity));
     const portfolioIrr = xirr(portfolioFlows);
     return { rows: rs, portfolio: portfolioIrr };
-  }, [investments, prices, dividends, usdInr, display]);
+  }, [investments, prices, dividends, usdInr, display, now]);
 
   if (rows.length === 0) {
     return null;

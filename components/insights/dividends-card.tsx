@@ -5,6 +5,7 @@ import { Coins } from "lucide-react";
 import type { StockInvestment } from "@/lib/types";
 import type { DividendSeries } from "@/app/providers";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/cn";
 
 type Row = {
@@ -30,10 +31,10 @@ export function DividendsCard({
   dividends: Record<string, DividendSeries>;
   prices: Record<string, { price: number }>;
 }) {
+  const now = useNow();
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
-    const nowMs = Date.now();
-    const yearAgo = nowMs - 365 * 24 * 60 * 60 * 1000;
+    const yearAgo = now - 365 * 24 * 60 * 60 * 1000;
     const qtyBySymbol = new Map<string, number>();
     const cur = new Map<string, "USD" | "INR">();
     for (const s of stocks) {
@@ -63,7 +64,7 @@ export function DividendsCard({
       });
     }
     return out.sort((a, b) => b.lastYear - a.lastYear);
-  }, [stocks, dividends, prices]);
+  }, [stocks, dividends, prices, now]);
 
   const totals = useMemo(() => {
     const totalsByCur: Record<"USD" | "INR", { lastYear: number; lifetime: number }> = {

@@ -5,6 +5,7 @@ import { Network } from "lucide-react";
 import { HistorySeries } from "@/lib/market";
 import { correlation } from "@/lib/analytics";
 import { formatNumber } from "@/lib/format";
+import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/cn";
 
 /**
@@ -18,12 +19,13 @@ export function CorrelationMatrix({
   history: Record<string, HistorySeries>;
   title?: string;
 }) {
+  const now = useNow();
   const { symbols, matrix } = useMemo(() => {
     const all = Object.entries(history).filter(
       ([, s]) => s.points.length >= 30,
     );
     // Limit to one-year tail to keep everything aligned and noise low.
-    const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+    const cutoff = now - 365 * 24 * 60 * 60 * 1000;
     const trimmed = all.map(([sym, s]) => ({
       sym,
       pts: s.points.filter((p) => p.t >= cutoff),
@@ -46,7 +48,7 @@ export function CorrelationMatrix({
       }
     }
     return { symbols: syms, matrix: m };
-  }, [history]);
+  }, [history, now]);
 
   return (
     <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.04] to-white/[0.01] p-5 shadow-xl">

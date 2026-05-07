@@ -9,10 +9,11 @@ import {
   TransactionStore,
   TransactionStoreSchema,
 } from "./types";
-import { applyDerivedHolding, listInvestments } from "./storage";
+import { applyDerivedHoldingInLock, listInvestments } from "./storage";
 import { deriveFromTransactions, syntheticInitialBuy } from "./transactions";
 import { requireCurrentUserId } from "./user-context";
 import { userDataDir } from "./users";
+import { atomicWriteJson, withUserLock } from "./file-lock";
 
 async function dataFile(): Promise<string> {
   const uid = await requireCurrentUserId();
@@ -21,12 +22,15 @@ async function dataFile(): Promise<string> {
   return path.join(dir, "transactions.json");
 }
 
-let writeLock: Promise<unknown> = Promise.resolve();
-
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = writeLock.then(fn, fn);
-  writeLock = run.catch(() => undefined);
-  return run;
+/**
+ * Per-user lock shared with `storage.ts`. See `lib/file-lock.ts` for why.
+ * The shared key means a `recomputeHolding` call inside a tx mutation
+ * (which writes to `investments.json`) is serialized against any
+ * concurrent direct `updateInvestment` for the same user.
+ */
+async function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const uid = await requireCurrentUserId();
+  return withUserLock(uid, fn);
 }
 
 async function ensureFile(): Promise<string> {
@@ -38,7 +42,7 @@ async function ensureFile(): Promise<string> {
       transactions: [],
       updatedAt: new Date().toISOString(),
     };
-    await fs.writeFile(file, JSON.stringify(empty, null, 2), "utf8");
+    await atomicWriteJson(file, empty);
   }
   return file;
 }
@@ -54,7 +58,7 @@ async function readStore(): Promise<TransactionStore> {
       transactions: [],
       updatedAt: new Date().toISOString(),
     };
-    await fs.writeFile(file, JSON.stringify(empty, null, 2), "utf8");
+    await atomicWriteJson(file, empty);
     return empty;
   }
 }
@@ -65,9 +69,7 @@ async function writeStore(store: TransactionStore): Promise<void> {
     ...store,
     updatedAt: new Date().toISOString(),
   };
-  const tmp = file + ".tmp";
-  await fs.writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
-  await fs.rename(tmp, file);
+  await atomicWriteJson(file, next);
 }
 
 /**
@@ -120,7 +122,10 @@ async function recomputeHolding(investmentId: string): Promise<void> {
   const txs = store.transactions.filter((t) => t.investmentId === investmentId);
   if (txs.length === 0) return;
   const derived = deriveFromTransactions(txs);
-  await applyDerivedHolding(investmentId, {
+  // Caller already holds the per-user lock (this is only called from inside
+  // `withLock(...)` blocks below), so we use the unlocked variant to avoid
+  // deadlock on the shared per-user lock.
+  await applyDerivedHoldingInLock(investmentId, {
     quantity: derived.quantity,
     avgCost: derived.avgCost,
     firstBuyDate: derived.firstBuyDate,

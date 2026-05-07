@@ -10,6 +10,7 @@ import {
 } from "./types";
 import { requireCurrentUserId } from "./user-context";
 import { userDataDir } from "./users";
+import { atomicWriteJson, withUserLock } from "./file-lock";
 
 async function dataFile(): Promise<string> {
   const uid = await requireCurrentUserId();
@@ -18,7 +19,16 @@ async function dataFile(): Promise<string> {
   return path.join(dir, "investments.json");
 }
 
-let writeLock: Promise<unknown> = Promise.resolve();
+/**
+ * Serialize a read-modify-write pair against the current user's storage.
+ * The lock key is the user id, so two different users do NOT block each
+ * other and `investments.json` shares the lock with `transactions.json`
+ * (both call `withUserLock(uid, ...)` via the shared helper).
+ */
+async function withLock<T>(fn: () => Promise<T>): Promise<T> {
+  const uid = await requireCurrentUserId();
+  return withUserLock(uid, fn);
+}
 
 async function ensureFile(): Promise<string> {
   const file = await dataFile();
@@ -26,7 +36,7 @@ async function ensureFile(): Promise<string> {
     await fs.access(file);
   } catch {
     const empty: Store = { investments: [], updatedAt: new Date().toISOString() };
-    await fs.writeFile(file, JSON.stringify(empty, null, 2), "utf8");
+    await atomicWriteJson(file, empty);
   }
   return file;
 }
@@ -39,7 +49,7 @@ export async function readStore(): Promise<Store> {
     return StoreSchema.parse(parsed);
   } catch {
     const empty: Store = { investments: [], updatedAt: new Date().toISOString() };
-    await fs.writeFile(file, JSON.stringify(empty, null, 2), "utf8");
+    await atomicWriteJson(file, empty);
     return empty;
   }
 }
@@ -47,15 +57,7 @@ export async function readStore(): Promise<Store> {
 async function writeStore(store: Store): Promise<void> {
   const file = await dataFile();
   const next: Store = { ...store, updatedAt: new Date().toISOString() };
-  const tmp = file + ".tmp";
-  await fs.writeFile(tmp, JSON.stringify(next, null, 2), "utf8");
-  await fs.rename(tmp, file);
-}
-
-function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const run = writeLock.then(fn, fn);
-  writeLock = run.catch(() => undefined);
-  return run;
+  await atomicWriteJson(file, next);
 }
 
 export async function listInvestments(): Promise<Investment[]> {
@@ -155,24 +157,35 @@ export async function applyDerivedHolding(
   investmentId: string,
   derived: { quantity: number; avgCost: number; firstBuyDate: string | null },
 ): Promise<Investment | null> {
-  return withLock(async () => {
-    const store = await readStore();
-    const idx = store.investments.findIndex((i) => i.id === investmentId);
-    if (idx === -1) return null;
-    const current = store.investments[idx];
-    if (current.category !== "US_STOCK" && current.category !== "INDIAN_STOCK") {
-      return current;
-    }
-    const next: Investment = {
-      ...current,
-      quantity: derived.quantity,
-      avgCost: derived.avgCost,
-      createdAt: derived.firstBuyDate ?? current.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    store.investments[idx] = next;
-    await writeStore(store);
-    return next;
-  });
+  return withLock(() => applyDerivedHoldingInLock(investmentId, derived));
+}
+
+/**
+ * Same as `applyDerivedHolding` but does NOT acquire the user lock.
+ * Call only from a context that already holds it (e.g. inside
+ * `transactions-storage`'s `withLock`) — otherwise reentry on the shared
+ * per-user lock would deadlock.
+ */
+export async function applyDerivedHoldingInLock(
+  investmentId: string,
+  derived: { quantity: number; avgCost: number; firstBuyDate: string | null },
+): Promise<Investment | null> {
+  const store = await readStore();
+  const idx = store.investments.findIndex((i) => i.id === investmentId);
+  if (idx === -1) return null;
+  const current = store.investments[idx];
+  if (current.category !== "US_STOCK" && current.category !== "INDIAN_STOCK") {
+    return current;
+  }
+  const next: Investment = {
+    ...current,
+    quantity: derived.quantity,
+    avgCost: derived.avgCost,
+    createdAt: derived.firstBuyDate ?? current.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+  store.investments[idx] = next;
+  await writeStore(store);
+  return next;
 }
 

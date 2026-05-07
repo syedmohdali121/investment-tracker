@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -33,23 +33,9 @@ import { IntradaySeries, useIntraday } from "@/app/providers";
 import { useSettings } from "@/app/settings-context";
 import { Sparkline } from "./sparkline";
 import { MarketStatusBadge } from "./market-status-badge";
+import { useNow } from "@/lib/use-now";
 
 type IntradayMap = Record<string, IntradaySeries>;
-
-/**
- * Returns a wall-clock timestamp that updates every `intervalMs`.
- * Using this avoids calling the impure `Date.now()` during render, which
- * is flagged by `react-hooks/purity` and would otherwise produce unstable
- * sparkline x-positions across renders.
- */
-function useNow(intervalMs = 60_000): number {
-  const [now, setNow] = useState<number>(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs);
-    return () => clearInterval(id);
-  }, [intervalMs]);
-  return now;
-}
 
 export function HoldingsTable({
   investments,

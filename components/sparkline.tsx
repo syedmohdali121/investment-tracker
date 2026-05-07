@@ -1,5 +1,6 @@
 "use client";
 
+import { useId } from "react";
 import { formatCurrencySmart } from "@/lib/format";
 import type { Currency } from "@/lib/types";
 
@@ -26,6 +27,13 @@ export function Sparkline({
   sessionStart?: number | null;
   sessionEnd?: number | null;
 }) {
+  // Stable, unique gradient id — derived from React's useId so it survives
+  // re-renders without colliding across multiple Sparkline instances on the
+  // same page. Hooks must run unconditionally, so this is called above the
+  // empty-state early return below.
+  const reactId = useId();
+  const fillId = `spark-${reactId.replace(/[:]/g, "")}`;
+
   if (!points || points.length < 2) {
     return (
       <div
@@ -43,7 +51,6 @@ export function Sparkline({
   const last = values[values.length - 1];
   const up = last >= baseline;
   const stroke = up ? "#10b981" : "#f43f5e";
-  const fillId = `spark-${Math.random().toString(36).slice(2, 8)}`;
 
   const min = Math.min(...values, baseline);
   const max = Math.max(...values, baseline);

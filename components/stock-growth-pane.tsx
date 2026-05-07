@@ -19,6 +19,7 @@ import { HistoryRange, useHistory } from "@/app/providers";
 import { StockInvestment } from "@/lib/types";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { sessionBoundsForCategory } from "@/lib/market-hours";
+import { useNow } from "@/lib/use-now";
 import { cn } from "@/lib/cn";
 
 const RANGES: Array<{ value: HistoryRange; label: string }> = [
@@ -230,15 +231,16 @@ export function StockGrowthPane({
 
       // Forward-fill benchmark onto portfolio timeline.
       const benchTimes = Array.from(benchNorm.keys()).sort((a, b) => a - b);
+      const merged: Array<{ t: number; value: number; benchValue: number }> = [];
       let bi = 0;
       let lastBench = benchNorm.get(benchTimes[0]) ?? 100;
-      const merged = portfolioNorm.map((p) => {
+      for (const p of portfolioNorm) {
         while (bi < benchTimes.length && benchTimes[bi] <= p.t) {
           lastBench = benchNorm.get(benchTimes[bi]) ?? lastBench;
           bi++;
         }
-        return { t: p.t, value: p.value, benchValue: lastBench };
-      });
+        merged.push({ t: p.t, value: p.value, benchValue: lastBench });
+      }
 
       return {
         chartData: merged,
@@ -257,9 +259,10 @@ export function StockGrowthPane({
   // the holding's exchange so an in-progress session leaves blank space to
   // the right of the latest bar instead of stretching to fill the chart.
   // Outside 1D we let recharts auto-fit the data.
+  const now = useNow();
   const xDomain = useMemo<[number | string, number | string]>(() => {
     if (range !== "1d" || chartData.length === 0) return ["dataMin", "dataMax"];
-    const within = chartData[chartData.length - 1]?.t ?? Date.now();
+    const within = chartData[chartData.length - 1]?.t ?? now;
     const cat = stocks[0]?.category ?? "US_STOCK";
     const bounds =
       cat === "INDIAN_STOCK" || cat === "US_STOCK"
@@ -267,7 +270,7 @@ export function StockGrowthPane({
         : null;
     if (!bounds) return ["dataMin", "dataMax"];
     return [bounds.start, bounds.end];
-  }, [range, chartData, stocks]);
+  }, [range, chartData, stocks, now]);
 
   return (
     <motion.div
