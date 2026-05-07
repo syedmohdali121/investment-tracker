@@ -425,6 +425,7 @@ function Row({
                   intraday?.prevClose ??
                   null
                 }
+                prevCloseCurrency={prices[inv.symbol]?.currency ?? nv.currency}
                 stale={sessionStale}
                 sessionStart={sessionStale ? null : intraday?.sessionStart}
                 sessionEnd={sessionStale ? null : intraday?.sessionEnd}
@@ -494,6 +495,7 @@ function Row({
                 intraday?.prevClose ??
                 null
               }
+              prevCloseCurrency={prices[inv.symbol]?.currency ?? nv.currency}
               stale={sessionStale}
               sessionStart={sessionStale ? null : intraday?.sessionStart}
               sessionEnd={sessionStale ? null : intraday?.sessionEnd}

@@ -1,10 +1,14 @@
 "use client";
 
+import { formatCurrencySmart } from "@/lib/format";
+import type { Currency } from "@/lib/types";
+
 type Pt = { t: number; close: number };
 
 export function Sparkline({
   points,
   prevClose,
+  prevCloseCurrency,
   width = 96,
   height = 28,
   stale = false,
@@ -13,6 +17,7 @@ export function Sparkline({
 }: {
   points: Pt[];
   prevClose: number | null;
+  prevCloseCurrency?: Currency;
   width?: number;
   height?: number;
   stale?: boolean;
@@ -73,6 +78,15 @@ export function Sparkline({
   const d = xs.map((x, i) => `${i === 0 ? "M" : "L"}${x.toFixed(2)},${ys[i].toFixed(2)}`).join(" ");
   const area = `${d} L${xs[xs.length - 1].toFixed(2)},${(h - pad).toFixed(2)} L${xs[0].toFixed(2)},${(h - pad).toFixed(2)} Z`;
 
+  const prevLabel =
+    typeof prevClose === "number" && prevCloseCurrency
+      ? formatCurrencySmart(prevClose, prevCloseCurrency)
+      : null;
+  // Place label above baseline if there's room, else below — keeps it from
+  // colliding with the chart line in tall/short bands.
+  const labelAbove = baselineY > h / 2;
+  const labelY = labelAbove ? baselineY - 2 : baselineY + 8;
+
   return (
     <svg
       width={w}
@@ -106,6 +120,18 @@ export function Sparkline({
         strokeLinecap="round"
       />
       <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r={1.8} fill={stroke} />
+      {prevLabel && (
+        <text
+          x={w - pad}
+          y={labelY}
+          textAnchor="end"
+          fontSize={8}
+          fill="rgba(255,255,255,0.55)"
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {prevLabel}
+        </text>
+      )}
     </svg>
   );
 }
