@@ -48,6 +48,9 @@ export default function InsightsPage() {
         price: q.price,
         currency: q.currency,
         previousClose: q.previousClose,
+        marketState: q.marketState,
+        preMarketPrice: q.preMarketPrice,
+        preMarketChangePercent: q.preMarketChangePercent,
       };
     }
     return m;

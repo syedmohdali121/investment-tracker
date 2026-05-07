@@ -137,6 +137,10 @@ export function usePrices(symbols: string[]) {
       change?: number;
       changePercent?: number;
       previousClose?: number;
+      marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
+      preMarketPrice?: number;
+      preMarketChange?: number;
+      preMarketChangePercent?: number;
     }>;
     asOf: string;
   }>({

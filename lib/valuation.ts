@@ -2,7 +2,14 @@ import { Category, Currency, Investment, isStock } from "./types";
 
 export type PriceMap = Record<
   string,
-  { price: number; currency: Currency; previousClose?: number }
+  {
+    price: number;
+    currency: Currency;
+    previousClose?: number;
+    marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
+    preMarketPrice?: number;
+    preMarketChangePercent?: number;
+  }
 >;
 
 export function convert(

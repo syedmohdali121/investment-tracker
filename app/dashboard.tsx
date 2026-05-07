@@ -57,6 +57,9 @@ export default function DashboardPage() {
       price: q.price,
       currency: q.currency,
       previousClose: q.previousClose,
+      marketState: q.marketState,
+      preMarketPrice: q.preMarketPrice,
+      preMarketChangePercent: q.preMarketChangePercent,
     };
   }
   const prevCloseBySymbol: Record<string, number | undefined> = {};

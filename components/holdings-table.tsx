@@ -256,6 +256,11 @@ function Row({
   const controls = useDragControls();
   const nv = nativeValue(inv, prices);
   const stock = isStock(inv);
+  const priceEntry = stock ? prices[inv.symbol] : undefined;
+  const preMarketActive =
+    stock &&
+    (priceEntry?.marketState === "PRE" || priceEntry?.marketState === "PREPRE") &&
+    typeof priceEntry?.preMarketPrice === "number";
 
   // Per-row figures always display in the investment's native currency so
   // toggling the dashboard display currency (INR ↔ USD) doesn't distort
@@ -357,8 +362,15 @@ function Row({
               <GripVertical className="h-4 w-4" />
             </button>
             <div className="flex min-w-0 flex-col">
-              <span className="truncate font-medium">
-                {stock ? inv.symbol : inv.label}
+              <span className="flex items-center gap-1.5 truncate font-medium">
+                <span className="truncate">{stock ? inv.symbol : inv.label}</span>
+                {preMarketActive && (
+                  <PreMarketChip
+                    price={priceEntry!.preMarketPrice!}
+                    pct={priceEntry!.preMarketChangePercent}
+                    currency={nv.currency}
+                  />
+                )}
               </span>
               <span className="truncate text-xs text-muted">
                 {stock
@@ -444,8 +456,15 @@ function Row({
         <GripVertical className="h-4 w-4" />
       </button>
       <div className="hidden min-w-0 flex-col md:flex">
-        <span className="truncate font-medium">
-          {stock ? inv.symbol : inv.label}
+        <span className="flex items-center gap-1.5 truncate font-medium">
+          <span className="truncate">{stock ? inv.symbol : inv.label}</span>
+          {preMarketActive && (
+            <PreMarketChip
+              price={priceEntry!.preMarketPrice!}
+              pct={priceEntry!.preMarketChangePercent}
+              currency={nv.currency}
+            />
+          )}
         </span>
         <span className="truncate text-xs text-muted">
           {stock
@@ -557,5 +576,38 @@ function Row({
         )}
       </span>
     </Reorder.Item>
+  );
+}
+
+function PreMarketChip({
+  price,
+  pct,
+  currency,
+}: {
+  price: number;
+  pct?: number;
+  currency: Currency;
+}) {
+  const positive = typeof pct === "number" ? pct >= 0 : true;
+  return (
+    <span
+      title={`Pre-market: ${formatCurrency(price, currency)}${
+        typeof pct === "number" ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : ""
+      } — not used in P/L`}
+      className={cn(
+        "inline-flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[9px] font-semibold uppercase leading-none tracking-wider",
+        positive
+          ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300"
+          : "border-rose-400/30 bg-rose-500/10 text-rose-300",
+      )}
+    >
+      <span>PRE</span>
+      {typeof pct === "number" && (
+        <span className="tabular-nums">
+          {pct >= 0 ? "+" : ""}
+          {pct.toFixed(2)}%
+        </span>
+      )}
+    </span>
   );
 }
