@@ -8,6 +8,7 @@ import {
   Briefcase,
   Building2,
   Check,
+  ChevronDown,
   CircleDollarSign,
   Coins,
   FileText,
@@ -126,6 +127,7 @@ export function AddInvestmentForm() {
     Array<{ schemeCode: string; schemeName: string; nav: number }>
   >([]);
   const [mfSearching, setMfSearching] = useState(false);
+  const [showAllCategories, setShowAllCategories] = useState(false);
   const mfDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isStockForm =
@@ -379,10 +381,20 @@ export function AddInvestmentForm() {
             Category
           </label>
           <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-            {CATEGORY_OPTIONS.map((opt) => {
+            {CATEGORY_OPTIONS.map((opt, idx) => {
               const Icon = opt.icon;
               const active = category === opt.value;
               const disabled = editingId !== null && !active;
+              const expanded = showAllCategories || active;
+              // 0..3: always visible. 4..5: hidden on mobile when collapsed.
+              // 6+: hidden everywhere when collapsed.
+              const hideClass = expanded
+                ? ""
+                : idx >= 6
+                  ? "hidden"
+                  : idx >= 4
+                    ? "hidden sm:flex"
+                    : "";
               return (
                 <button
                   type="button"
@@ -398,6 +410,7 @@ export function AddInvestmentForm() {
                       ? "border-indigo-400/40 bg-indigo-500/10"
                       : "border-white/10 bg-white/[0.02] hover:border-white/20",
                     disabled && "cursor-not-allowed opacity-40 hover:border-white/10",
+                    hideClass,
                   )}
                   title={disabled ? "Category cannot be changed while editing" : undefined}
                 >
@@ -419,6 +432,23 @@ export function AddInvestmentForm() {
               );
             })}
           </div>
+          {CATEGORY_OPTIONS.length > 4 && (
+            <button
+              type="button"
+              onClick={() => setShowAllCategories((v) => !v)}
+              className="mt-2 flex items-center gap-1 text-xs font-medium text-muted transition hover:text-foreground"
+            >
+              <ChevronDown
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform",
+                  showAllCategories && "rotate-180",
+                )}
+              />
+              {showAllCategories
+                ? "Show fewer"
+                : `Show ${CATEGORY_OPTIONS.length - 4} more`}
+            </button>
+          )}
 
           {isStockForm ? (
             <div className="mt-5 space-y-4">
