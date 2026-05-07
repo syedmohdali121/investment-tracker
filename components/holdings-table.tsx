@@ -63,10 +63,16 @@ export function HoldingsTable({
   display: Currency;
 }) {
   const qc = useQueryClient();
+  // Local copy of the investments list for optimistic drag-reorder. We mirror
+  // the prop using the React docs "Adjusting state during render" pattern
+  // (https://react.dev/reference/react/useState#storing-information-from-previous-renders)
+  // instead of an effect — the effect form triggers cascading renders.
   const [items, setItems] = useState<Investment[]>(investments);
-  useEffect(() => {
+  const [prevInvestments, setPrevInvestments] = useState(investments);
+  if (investments !== prevInvestments) {
+    setPrevInvestments(investments);
     setItems(investments);
-  }, [investments]);
+  }
 
   const stockSymbols = useMemo(
     () =>

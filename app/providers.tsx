@@ -1,6 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useSyncExternalStore,
+} from "react";
 import {
   QueryClient,
   QueryClientProvider,
@@ -29,39 +35,71 @@ export function useCurrency() {
 
 function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const { settings } = useSettings();
-  const [currency, setCurrencyState] = useState<Currency>(
-    settings.defaultCurrency,
+  const stored = useSyncExternalStore(
+    subscribeDisplayCurrency,
+    getDisplayCurrencySnapshot,
+    getDisplayCurrencyServerSnapshot,
   );
-  const [hydrated, setHydrated] = useState(false);
+  // localStorage is the source of truth when set; otherwise fall back to the
+  // user's default currency from settings. Pure derivation — no setState in
+  // an effect, so no cascading renders.
+  const currency: Currency =
+    stored === "USD" || stored === "INR" ? stored : settings.defaultCurrency;
 
-  useEffect(() => {
-    const saved = localStorage.getItem("display-currency");
-    if (saved === "USD" || saved === "INR") setCurrencyState(saved);
-    else setCurrencyState(settings.defaultCurrency);
-    setHydrated(true);
-    // Only run on mount; future changes to defaultCurrency handled via effect below.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  const setCurrency = useCallback((c: Currency) => {
+    try {
+      window.localStorage.setItem(DISPLAY_CURRENCY_KEY, c);
+    } catch {
+      // ignore
+    }
+    notifyDisplayCurrencyChanged();
   }, []);
 
-  // When the user changes the default currency in Settings and has not
-  // explicitly overridden it in this session, follow the new default.
-  useEffect(() => {
-    if (!hydrated) return;
-    const override = localStorage.getItem("display-currency");
-    if (!override) setCurrencyState(settings.defaultCurrency);
-  }, [settings.defaultCurrency, hydrated]);
+  const toggle = useCallback(() => {
+    setCurrency(currency === "INR" ? "USD" : "INR");
+  }, [currency, setCurrency]);
 
-  const setCurrency = (c: Currency) => {
-    setCurrencyState(c);
-    if (hydrated) localStorage.setItem("display-currency", c);
-  };
-  const toggle = () => setCurrency(currency === "INR" ? "USD" : "INR");
+  const value = useMemo(
+    () => ({ currency, setCurrency, toggle }),
+    [currency, setCurrency, toggle],
+  );
 
   return (
-    <CurrencyContext.Provider value={{ currency, setCurrency, toggle }}>
+    <CurrencyContext.Provider value={value}>
       {children}
     </CurrencyContext.Provider>
   );
+}
+
+// External store for `localStorage["display-currency"]`. See settings-context
+// for the rationale for using `useSyncExternalStore` over useEffect+setState.
+const DISPLAY_CURRENCY_KEY = "display-currency";
+const displayCurrencyListeners = new Set<() => void>();
+function notifyDisplayCurrencyChanged() {
+  for (const l of displayCurrencyListeners) l();
+}
+function subscribeDisplayCurrency(cb: () => void): () => void {
+  displayCurrencyListeners.add(cb);
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", cb);
+  }
+  return () => {
+    displayCurrencyListeners.delete(cb);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", cb);
+    }
+  };
+}
+function getDisplayCurrencySnapshot(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(DISPLAY_CURRENCY_KEY);
+  } catch {
+    return null;
+  }
+}
+function getDisplayCurrencyServerSnapshot(): string | null {
+  return null;
 }
 
 let queryClient: QueryClient | null = null;

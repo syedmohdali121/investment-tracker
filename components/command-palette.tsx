@@ -78,13 +78,17 @@ function CommandPalette() {
   const { currency, toggle: toggleCurrency } = useCurrency();
   const { setTheme, resolvedTheme } = useTheme();
 
-  // Reset query when closed.
-  useEffect(() => {
+  // Reset query/active when the palette closes. React docs "Adjusting state
+  // during render" pattern, used in place of a useEffect+setState that the
+  // `react-hooks/set-state-in-effect` rule (correctly) flags as cascading.
+  const [prevOpen, setPrevOpen] = useState(open);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
     if (!open) {
       setQuery("");
       setActive(0);
     }
-  }, [open]);
+  }
 
   const go = useCallback(
     (href: string) => {
@@ -236,9 +240,13 @@ function CommandPalette() {
     });
   }, [commands, query]);
 
-  useEffect(() => {
+  // When the filtered command list shrinks below the current selection,
+  // clamp the active index back to 0. Same prev-state pattern as above.
+  const [prevFilteredLen, setPrevFilteredLen] = useState(filtered.length);
+  if (filtered.length !== prevFilteredLen) {
+    setPrevFilteredLen(filtered.length);
     if (active >= filtered.length) setActive(0);
-  }, [filtered.length, active]);
+  }
 
   // Close / navigate with keyboard while open.
   useEffect(() => {

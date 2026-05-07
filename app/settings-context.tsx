@@ -4,8 +4,8 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
-  useState,
+  useMemo,
+  useSyncExternalStore,
 } from "react";
 import type { Currency } from "@/lib/types";
 
@@ -46,6 +46,39 @@ const DEFAULTS: Settings = {
 
 const STORAGE_KEY = "portfolio-pulse:settings";
 
+// External store for `localStorage[STORAGE_KEY]`. Using `useSyncExternalStore`
+// here (instead of useEffect+setState) avoids the `react-hooks/set-state-in-effect`
+// lint warning, gives correct SSR snapshots, and propagates changes across tabs
+// via the native `storage` event. Same-tab writes notify via an in-memory
+// listener set because browsers don't fire `storage` for the originating tab.
+const storeListeners = new Set<() => void>();
+function notifySettingsChanged() {
+  for (const l of storeListeners) l();
+}
+function subscribeSettings(cb: () => void): () => void {
+  storeListeners.add(cb);
+  if (typeof window !== "undefined") {
+    window.addEventListener("storage", cb);
+  }
+  return () => {
+    storeListeners.delete(cb);
+    if (typeof window !== "undefined") {
+      window.removeEventListener("storage", cb);
+    }
+  };
+}
+function getSettingsSnapshot(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+function getSettingsServerSnapshot(): string | null {
+  return null;
+}
+
 type Ctx = {
   settings: Settings;
   update: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
@@ -61,49 +94,43 @@ export function useSettings() {
 }
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(DEFAULTS);
-  const [hydrated, setHydrated] = useState(false);
+  const raw = useSyncExternalStore(
+    subscribeSettings,
+    getSettingsSnapshot,
+    getSettingsServerSnapshot,
+  );
 
-  useEffect(() => {
+  const settings = useMemo<Settings>(() => {
+    if (!raw) return DEFAULTS;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw) as Partial<Settings>;
-        setSettings((s) => ({ ...s, ...parsed }));
-      }
+      const parsed = JSON.parse(raw) as Partial<Settings>;
+      return { ...DEFAULTS, ...parsed };
     } catch {
-      // ignore
+      return DEFAULTS;
     }
-    setHydrated(true);
-  }, []);
+  }, [raw]);
 
   const update = useCallback(
     <K extends keyof Settings>(key: K, value: Settings[K]) => {
-      setSettings((prev) => {
-        const next = { ...prev, [key]: value };
-        if (hydrated) {
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-          } catch {
-            // ignore
-          }
-        }
-        return next;
-      });
+      const next = { ...settings, [key]: value };
+      try {
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // ignore (private mode, quota, etc.)
+      }
+      notifySettingsChanged();
     },
-    [hydrated],
+    [settings],
   );
 
   const reset = useCallback(() => {
-    setSettings(DEFAULTS);
-    if (hydrated) {
-      try {
-        localStorage.removeItem(STORAGE_KEY);
-      } catch {
-        // ignore
-      }
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // ignore
     }
-  }, [hydrated]);
+    notifySettingsChanged();
+  }, []);
 
   return (
     <SettingsContext.Provider value={{ settings, update, reset }}>

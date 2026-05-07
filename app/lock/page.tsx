@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft,
@@ -21,17 +22,20 @@ type Mode =
   | { kind: "delete"; user: PublicUser };
 
 export default function LockPage() {
-  const [next, setNext] = useState("/");
+  // useSearchParams must be wrapped in Suspense per Next 16 App Router.
+  return (
+    <Suspense fallback={null}>
+      <LockPageInner />
+    </Suspense>
+  );
+}
+
+function LockPageInner() {
+  const searchParams = useSearchParams();
+  const next = searchParams.get("next") || "/";
   const [mode, setMode] = useState<Mode>({ kind: "loading" });
 
   useEffect(() => {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      const n = params.get("next");
-      if (n) setNext(n);
-    } catch {
-      /* noop */
-    }
     void refresh(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -44,9 +48,7 @@ export default function LockPage() {
         authedUserId: string | null;
       };
       if (redirectIfAuthed && data.authedUserId) {
-        const params = new URLSearchParams(window.location.search);
-        const target = params.get("next") || "/";
-        window.location.href = target;
+        window.location.href = next;
         return;
       }
       if (data.users.length === 0) {

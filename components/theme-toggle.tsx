@@ -2,12 +2,23 @@
 
 import { useTheme } from "next-themes";
 import { Moon, Sun } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
+
+// `useSyncExternalStore` with a noop subscribe and `getServerSnapshot=false`
+// gives us a stable "are we on the client?" boolean without a setState-in-effect
+// pattern. Server snapshot is `false`, client snapshot is `true`, transition
+// happens during hydration without warnings.
+const noopSubscribe = () => () => {};
+const getMountedClient = () => true;
+const getMountedServer = () => false;
 
 export function ThemeToggle() {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => setMounted(true), []);
+  const mounted = useSyncExternalStore(
+    noopSubscribe,
+    getMountedClient,
+    getMountedServer,
+  );
   const isDark = mounted ? resolvedTheme === "dark" : true;
   return (
     <button

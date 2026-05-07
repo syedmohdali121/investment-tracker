@@ -159,9 +159,21 @@ export function AddInvestmentForm() {
 
   const looksLikeStock = useMemo(() => symbol.trim().length >= 1, [symbol]);
 
+  // We derive the visible result lists from the input length instead of
+  // synchronously resetting state inside the search effects. This keeps the
+  // effects free of `react-hooks/set-state-in-effect` complaints and avoids
+  // a flicker when the user types past the threshold (the previous results
+  // remain visible until new ones arrive, which is also a nicer UX).
+  const visibleMfResults =
+    isMfForm && mfQuery.trim().length >= 2 ? mfResults : [];
+  const visibleSymbolResults =
+    (category === "US_STOCK" || category === "INDIAN_STOCK") &&
+    symbol.trim().length >= 1
+      ? symbolResults
+      : [];
+
   useEffect(() => {
     if (!isMfForm || mfQuery.trim().length < 2) {
-      setMfResults([]);
       return;
     }
     if (mfDebounceRef.current) clearTimeout(mfDebounceRef.current);
@@ -188,7 +200,6 @@ export function AddInvestmentForm() {
     const isStockSearchForm =
       category === "US_STOCK" || category === "INDIAN_STOCK";
     if (!isStockSearchForm || symbol.trim().length < 1) {
-      setSymbolResults([]);
       return;
     }
     if (symbolDebounceRef.current) clearTimeout(symbolDebounceRef.current);
@@ -501,9 +512,9 @@ export function AddInvestmentForm() {
                       <Loader2 className="h-3 w-3 animate-spin" /> Searching…
                     </div>
                   )}
-                  {mfResults.length > 0 && (
+                  {visibleMfResults.length > 0 && (
                     <div className="mt-2 max-h-48 overflow-y-auto rounded-lg border border-white/10 bg-white/[0.02]">
-                      {mfResults.map((r) => (
+                      {visibleMfResults.map((r) => (
                         <button
                           type="button"
                           key={r.schemeCode}
@@ -562,15 +573,15 @@ export function AddInvestmentForm() {
                     {!isMfForm &&
                       symbolFocused &&
                       symbol.trim().length >= 1 &&
-                      (symbolSearching || symbolResults.length > 0) && (
+                      (symbolSearching || visibleSymbolResults.length > 0) && (
                         <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-lg border border-white/10 bg-[var(--color-background)] shadow-xl">
-                          {symbolSearching && symbolResults.length === 0 && (
+                          {symbolSearching && visibleSymbolResults.length === 0 && (
                             <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted">
                               <Loader2 className="h-3 w-3 animate-spin" />
                               Searching…
                             </div>
                           )}
-                          {symbolResults.map((r) => (
+                          {visibleSymbolResults.map((r) => (
                             <button
                               type="button"
                               key={r.symbol}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { motion } from "framer-motion";
 import {
   Settings as SettingsIcon,
@@ -278,9 +278,14 @@ function RenameForm({
   const [name, setName] = useState(user.name);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  // Reset the input when the underlying user changes (e.g. user switch). The
+  // React docs "Adjusting state during render" idiom avoids an effect that
+  // would trigger a cascading render.
+  const [prevUserName, setPrevUserName] = useState(user.name);
+  if (user.name !== prevUserName) {
+    setPrevUserName(user.name);
     setName(user.name);
-  }, [user.name]);
+  }
 
   const dirty = name.trim() !== user.name && name.trim().length > 0;
 
