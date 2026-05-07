@@ -5,7 +5,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   CartesianGrid,
   Line,
-  LineChart,
   Area,
   AreaChart,
   ComposedChart,
@@ -92,7 +91,7 @@ export function StockGrowthPane({
     stocks[0]?.currency ??
     "USD";
 
-  const { chartData, combinedStart, combinedEnd, benchStart, benchEnd } =
+  const { chartData, combinedStart, combinedEnd, benchEnd } =
     useMemo(() => {
       const rawSeries = historyQ.data?.series ?? [];
       // For the 1D view, reseed each symbol's first point with the

@@ -32,7 +32,10 @@ import type { HistorySeries, IntradaySeries } from "@/lib/market";
 export default function InsightsPage() {
   const { currency } = useCurrency();
   const investmentsQ = useInvestments();
-  const investments = investmentsQ.data?.investments ?? [];
+  const investments = useMemo(
+    () => investmentsQ.data?.investments ?? [],
+    [investmentsQ.data],
+  );
   const stocks = investments.filter(isStock) as StockInvestment[];
   const symbols = symbolsOf(investments);
   const pricesQ = usePrices(symbols);
@@ -98,24 +101,6 @@ export default function InsightsPage() {
     };
     return runInsights(ctx);
   }, [investments, priceMap, fxQ.data?.usdInr, currency, intradayMap, historyMap]);
-
-  const usHistoryMap = useMemo(() => {
-    const m: Record<string, HistorySeries> = {};
-    for (const s of stocks.filter((x) => x.category === "US_STOCK")) {
-      const h = historyMap[s.symbol];
-      if (h) m[s.symbol] = h;
-    }
-    return m;
-  }, [stocks, historyMap]);
-
-  const inHistoryMap = useMemo(() => {
-    const m: Record<string, HistorySeries> = {};
-    for (const s of stocks.filter((x) => x.category === "INDIAN_STOCK")) {
-      const h = historyMap[s.symbol];
-      if (h) m[s.symbol] = h;
-    }
-    return m;
-  }, [stocks, historyMap]);
 
   const priceByPrice = useMemo(() => {
     const m: Record<string, { price: number }> = {};
