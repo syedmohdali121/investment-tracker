@@ -141,6 +141,9 @@ export function usePrices(symbols: string[]) {
       preMarketPrice?: number;
       preMarketChange?: number;
       preMarketChangePercent?: number;
+      postMarketPrice?: number;
+      postMarketChange?: number;
+      postMarketChangePercent?: number;
     }>;
     asOf: string;
   }>({

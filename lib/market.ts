@@ -17,11 +17,14 @@ export type Quote = {
   change?: number;
   changePercent?: number;
   previousClose?: number;
-  // Pre-market data — display-only, never used in P/L or valuation math.
+  // Extended-session data — display-only, never used in P/L or valuation math.
   marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
   preMarketPrice?: number;
   preMarketChange?: number;
   preMarketChangePercent?: number;
+  postMarketPrice?: number;
+  postMarketChange?: number;
+  postMarketChangePercent?: number;
 };
 
 type CacheEntry<T> = { value: T; expires: number };
@@ -241,6 +244,9 @@ export async function getQuotes(symbols: string[]): Promise<Quote[]> {
           preMarketPrice: r.preMarketPrice as number | undefined,
           preMarketChange: r.preMarketChange as number | undefined,
           preMarketChangePercent: r.preMarketChangePercent as number | undefined,
+          postMarketPrice: r.postMarketPrice as number | undefined,
+          postMarketChange: r.postMarketChange as number | undefined,
+          postMarketChangePercent: r.postMarketChangePercent as number | undefined,
         };
         quoteCache.set(symbol, { value: q, expires: now + QUOTE_TTL_MS });
         out.push(q);

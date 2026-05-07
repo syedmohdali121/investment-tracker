@@ -60,6 +60,8 @@ export default function DashboardPage() {
       marketState: q.marketState,
       preMarketPrice: q.preMarketPrice,
       preMarketChangePercent: q.preMarketChangePercent,
+      postMarketPrice: q.postMarketPrice,
+      postMarketChangePercent: q.postMarketChangePercent,
     };
   }
   const prevCloseBySymbol: Record<string, number | undefined> = {};

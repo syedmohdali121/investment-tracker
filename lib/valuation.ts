@@ -9,6 +9,8 @@ export type PriceMap = Record<
     marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
     preMarketPrice?: number;
     preMarketChangePercent?: number;
+    postMarketPrice?: number;
+    postMarketChangePercent?: number;
   }
 >;
 

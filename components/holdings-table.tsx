@@ -257,10 +257,34 @@ function Row({
   const nv = nativeValue(inv, prices);
   const stock = isStock(inv);
   const priceEntry = stock ? prices[inv.symbol] : undefined;
-  const preMarketActive =
-    stock &&
-    (priceEntry?.marketState === "PRE" || priceEntry?.marketState === "PREPRE") &&
-    typeof priceEntry?.preMarketPrice === "number";
+  const sessionExtra: {
+    label: "PRE" | "AH";
+    price: number;
+    pct?: number;
+  } | null = (() => {
+    if (!stock || !priceEntry) return null;
+    if (
+      (priceEntry.marketState === "PRE" || priceEntry.marketState === "PREPRE") &&
+      typeof priceEntry.preMarketPrice === "number"
+    ) {
+      return {
+        label: "PRE",
+        price: priceEntry.preMarketPrice,
+        pct: priceEntry.preMarketChangePercent,
+      };
+    }
+    if (
+      (priceEntry.marketState === "POST" || priceEntry.marketState === "POSTPOST") &&
+      typeof priceEntry.postMarketPrice === "number"
+    ) {
+      return {
+        label: "AH",
+        price: priceEntry.postMarketPrice,
+        pct: priceEntry.postMarketChangePercent,
+      };
+    }
+    return null;
+  })();
 
   // Per-row figures always display in the investment's native currency so
   // toggling the dashboard display currency (INR ↔ USD) doesn't distort
@@ -364,10 +388,11 @@ function Row({
             <div className="flex min-w-0 flex-col">
               <span className="flex items-center gap-1.5 truncate font-medium">
                 <span className="truncate">{stock ? inv.symbol : inv.label}</span>
-                {preMarketActive && (
-                  <PreMarketChip
-                    price={priceEntry!.preMarketPrice!}
-                    pct={priceEntry!.preMarketChangePercent}
+                {sessionExtra && (
+                  <SessionChip
+                    label={sessionExtra.label}
+                    price={sessionExtra.price}
+                    pct={sessionExtra.pct}
                     currency={nv.currency}
                   />
                 )}
@@ -459,10 +484,11 @@ function Row({
       <div className="hidden min-w-0 flex-col md:flex">
         <span className="flex items-center gap-1.5 truncate font-medium">
           <span className="truncate">{stock ? inv.symbol : inv.label}</span>
-          {preMarketActive && (
-            <PreMarketChip
-              price={priceEntry!.preMarketPrice!}
-              pct={priceEntry!.preMarketChangePercent}
+          {sessionExtra && (
+            <SessionChip
+              label={sessionExtra.label}
+              price={sessionExtra.price}
+              pct={sessionExtra.pct}
               currency={nv.currency}
             />
           )}
@@ -581,19 +607,22 @@ function Row({
   );
 }
 
-function PreMarketChip({
+function SessionChip({
+  label,
   price,
   pct,
   currency,
 }: {
+  label: "PRE" | "AH";
   price: number;
   pct?: number;
   currency: Currency;
 }) {
   const positive = typeof pct === "number" ? pct >= 0 : true;
+  const tooltipPrefix = label === "PRE" ? "Pre-market" : "After-hours";
   return (
     <span
-      title={`Pre-market: ${formatCurrency(price, currency)}${
+      title={`${tooltipPrefix}: ${formatCurrency(price, currency)}${
         typeof pct === "number" ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(2)}%)` : ""
       } — not used in P/L`}
       className={cn(
@@ -603,7 +632,7 @@ function PreMarketChip({
           : "border-rose-400/30 bg-rose-500/10 text-rose-300",
       )}
     >
-      <span>PRE</span>
+      <span>{label}</span>
       {typeof pct === "number" && (
         <span className="tabular-nums">
           {pct >= 0 ? "+" : ""}
