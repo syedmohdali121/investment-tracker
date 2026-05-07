@@ -462,7 +462,13 @@ export function StockGrowthPane({
                     No history available for this range.
                   </div>
                 ) : compare && benchmark ? (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    minWidth={0}
+                    minHeight={0}
+                    initialDimension={{ width: 1, height: 1 }}
+                  >
                     <ComposedChart
                       data={chartData}
                       margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
@@ -549,7 +555,13 @@ export function StockGrowthPane({
                     </ComposedChart>
                   </ResponsiveContainer>
                 ) : (
-                  <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+                  <ResponsiveContainer
+                    width="100%"
+                    height="100%"
+                    minWidth={0}
+                    minHeight={0}
+                    initialDimension={{ width: 1, height: 1 }}
+                  >
                     <AreaChart
                       data={chartData}
                       margin={{ left: 0, right: 8, top: 8, bottom: 0 }}
