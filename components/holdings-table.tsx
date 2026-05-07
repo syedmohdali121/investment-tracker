@@ -18,8 +18,8 @@ import {
 } from "@/lib/types";
 import {
   PriceMap,
-  costIn,
   nativeValue,
+  sessionPrice,
   valueIn,
 } from "@/lib/valuation";
 import {
@@ -30,10 +30,26 @@ import {
 } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { IntradaySeries, useIntraday } from "@/app/providers";
+import { useSettings } from "@/app/settings-context";
 import { Sparkline } from "./sparkline";
 import { MarketStatusBadge } from "./market-status-badge";
 
 type IntradayMap = Record<string, IntradaySeries>;
+
+/**
+ * Returns a wall-clock timestamp that updates every `intervalMs`.
+ * Using this avoids calling the impure `Date.now()` during render, which
+ * is flagged by `react-hooks/purity` and would otherwise produce unstable
+ * sparkline x-positions across renders.
+ */
+function useNow(intervalMs = 60_000): number {
+  const [now, setNow] = useState<number>(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(id);
+  }, [intervalMs]);
+  return now;
+}
 
 export function HoldingsTable({
   investments,
@@ -65,6 +81,7 @@ export function HoldingsTable({
     for (const s of intradayQ.data?.series ?? []) m[s.symbol] = s;
     return m;
   }, [intradayQ.data]);
+  const now = useNow();
 
   if (items.length === 0) return null;
 
@@ -132,6 +149,7 @@ export function HoldingsTable({
           usdInr={usdInr}
           display={display}
           intradayMap={intradayMap}
+          now={now}
           onReorderCategory={onReorderCategory}
         />
       ))}
@@ -152,6 +170,7 @@ function CategoryBlock({
   usdInr,
   display,
   intradayMap,
+  now,
   onReorderCategory,
 }: {
   cat: Category;
@@ -160,6 +179,7 @@ function CategoryBlock({
   usdInr: number;
   display: Currency;
   intradayMap: IntradayMap;
+  now: number;
   onReorderCategory: (cat: Category, next: Investment[]) => void;
 }) {
   const controls = useDragControls();
@@ -236,6 +256,7 @@ function CategoryBlock({
               inv={inv}
               prices={prices}
               intraday={isStock(inv) ? intradayMap[inv.symbol] : undefined}
+              now={now}
             />
           ))}
         </Reorder.Group>
@@ -248,12 +269,15 @@ function Row({
   inv,
   prices,
   intraday,
+  now,
 }: {
   inv: Investment;
   prices: PriceMap;
   intraday?: IntradaySeries;
+  now: number;
 }) {
   const controls = useDragControls();
+  const { settings } = useSettings();
   const nv = nativeValue(inv, prices);
   const stock = isStock(inv);
   const priceEntry = stock ? prices[inv.symbol] : undefined;
@@ -310,9 +334,13 @@ function Row({
   let sessionCurrency: Currency | null = null;
   let sessionStale = false;
   if (stock) {
-    const quotePrev = prices[inv.symbol]?.previousClose;
+    const pe = prices[inv.symbol];
+    const quotePrev = pe?.previousClose;
+    // When the user opted in, prefer the active extended-session price.
+    // Otherwise (or when no extended price is present) fall back to the
+    // regular-session price.
     const currentPrice =
-      prices[inv.symbol]?.price ??
+      (pe ? sessionPrice(pe, settings.extendedHoursPL) : undefined) ??
       (intraday && intraday.points.length > 0
         ? intraday.points[intraday.points.length - 1].close
         : undefined);
@@ -349,13 +377,13 @@ function Row({
           const last = basePoints[basePoints.length - 1];
           // Replace the last bar if it's within the last 5 minutes (live tick),
           // otherwise append a new point at "now".
-          if (Date.now() - last.t < 5 * 60 * 1000) {
+          if (now - last.t < 5 * 60 * 1000) {
             return [
               ...basePoints.slice(0, -1),
-              { t: Date.now(), close: liveQuote },
+              { t: now, close: liveQuote },
             ];
           }
-          return [...basePoints, { t: Date.now(), close: liveQuote }];
+          return [...basePoints, { t: now, close: liveQuote }];
         })()
       : basePoints;
 

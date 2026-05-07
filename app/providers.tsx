@@ -9,6 +9,7 @@ import {
 import { ThemeProvider } from "next-themes";
 import { Toaster } from "sonner";
 import type { Currency, Investment, Transaction } from "@/lib/types";
+import type { PriceEntry } from "@/lib/valuation";
 import { SettingsProvider, useSettings } from "./settings-context";
 import { CommandPaletteProvider } from "@/components/command-palette";
 import { ShortcutsProvider } from "@/components/shortcuts-provider";
@@ -129,22 +130,16 @@ export function usePrices(symbols: string[]) {
   const { settings } = useSettings();
   const interval = settings.refreshInterval;
   return useQuery<{
-    quotes: Array<{
-      symbol: string;
-      price: number;
-      currency: "USD" | "INR";
-      name?: string;
-      change?: number;
-      changePercent?: number;
-      previousClose?: number;
-      marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
-      preMarketPrice?: number;
-      preMarketChange?: number;
-      preMarketChangePercent?: number;
-      postMarketPrice?: number;
-      postMarketChange?: number;
-      postMarketChangePercent?: number;
-    }>;
+    quotes: Array<
+      PriceEntry & {
+        symbol: string;
+        name?: string;
+        change?: number;
+        changePercent?: number;
+        preMarketChange?: number;
+        postMarketChange?: number;
+      }
+    >;
     asOf: string;
   }>({
     queryKey: ["quotes", key],

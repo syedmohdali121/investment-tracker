@@ -1,18 +1,71 @@
 import { Category, Currency, Investment, isStock } from "./types";
 
-export type PriceMap = Record<
-  string,
-  {
-    price: number;
-    currency: Currency;
-    previousClose?: number;
-    marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
-    preMarketPrice?: number;
-    preMarketChangePercent?: number;
-    postMarketPrice?: number;
-    postMarketChangePercent?: number;
+/**
+ * Per-symbol price data used by valuation, P/L, and chip rendering.
+ *
+ * SINGLE SOURCE OF TRUTH for client-side price entries — all consumers
+ * (dashboard, insights, holdings table, contribution list) should construct
+ * entries via `quoteToPriceEntry` so newly-added fields automatically
+ * propagate. If you add a field here, also add it to `quoteToPriceEntry`.
+ */
+export type PriceEntry = {
+  price: number;
+  currency: Currency;
+  previousClose?: number;
+  marketState?: "PRE" | "PREPRE" | "REGULAR" | "POST" | "POSTPOST" | "CLOSED";
+  preMarketPrice?: number;
+  preMarketChangePercent?: number;
+  postMarketPrice?: number;
+  postMarketChangePercent?: number;
+};
+
+export type PriceMap = Record<string, PriceEntry>;
+
+/**
+ * Build a `PriceEntry` from a quote-shaped object (from `/api/quotes` or
+ * `getQuotes`). Strips fields irrelevant to valuation/display so the map
+ * stays narrow.
+ */
+export function quoteToPriceEntry(q: PriceEntry): PriceEntry {
+  return {
+    price: q.price,
+    currency: q.currency,
+    previousClose: q.previousClose,
+    marketState: q.marketState,
+    preMarketPrice: q.preMarketPrice,
+    preMarketChangePercent: q.preMarketChangePercent,
+    postMarketPrice: q.postMarketPrice,
+    postMarketChangePercent: q.postMarketChangePercent,
+  };
+}
+
+/**
+ * Effective price to use when computing "session P/L" (Today's P/L). When
+ * `extendedHours` is true and the symbol is in an active extended session,
+ * returns the extended-hours price; otherwise returns the regular-session
+ * price (`q.price`). NEVER used for net worth, total P/L, valuation, or
+ * tax — those always use `q.price` (the regular-session close).
+ */
+export function sessionPrice(
+  q: PriceEntry,
+  extendedHours: boolean,
+): number {
+  if (extendedHours) {
+    if (
+      (q.marketState === "PRE" || q.marketState === "PREPRE") &&
+      typeof q.preMarketPrice === "number"
+    ) {
+      return q.preMarketPrice;
+    }
+    if (
+      (q.marketState === "POST" || q.marketState === "POSTPOST") &&
+      typeof q.postMarketPrice === "number"
+    ) {
+      return q.postMarketPrice;
+    }
   }
->;
+  return q.price;
+}
 
 export function convert(
   amount: number,

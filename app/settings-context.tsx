@@ -27,6 +27,13 @@ export type Settings = {
   refreshInterval: RefreshInterval;
   locale: string;
   compactNumbers: boolean;
+  /**
+   * When true, Today's P/L (per-row contribution and session deltas) uses
+   * the active extended-session price (pre-market or after-hours) for the
+   * "current" leg. Net worth, total P/L, and tax math always use the
+   * regular-session price regardless of this setting.
+   */
+  extendedHoursPL: boolean;
 };
 
 const DEFAULTS: Settings = {
@@ -34,6 +41,7 @@ const DEFAULTS: Settings = {
   refreshInterval: 60_000,
   locale: "en-IN",
   compactNumbers: false,
+  extendedHoursPL: false,
 };
 
 const STORAGE_KEY = "portfolio-pulse:settings";

@@ -17,9 +17,12 @@ import {
   usePrices,
   useProfiles,
 } from "./providers";
+import { useSettings } from "./settings-context";
 import {
   aggregateByCategory,
   netWorth,
+  quoteToPriceEntry,
+  sessionPrice,
   symbolsOf,
   valueIn,
   costIn,
@@ -44,6 +47,7 @@ import { investmentsToCsv } from "@/lib/csv";
 
 export default function DashboardPage() {
   const { currency } = useCurrency();
+  const { settings } = useSettings();
   const qc = useQueryClient();
   const investmentsQ = useInvestments();
   const fxQ = useFx();
@@ -53,16 +57,7 @@ export default function DashboardPage() {
 
   const priceMap: PriceMap = {};
   for (const q of pricesQ.data?.quotes ?? []) {
-    priceMap[q.symbol] = {
-      price: q.price,
-      currency: q.currency,
-      previousClose: q.previousClose,
-      marketState: q.marketState,
-      preMarketPrice: q.preMarketPrice,
-      preMarketChangePercent: q.preMarketChangePercent,
-      postMarketPrice: q.postMarketPrice,
-      postMarketChangePercent: q.postMarketChangePercent,
-    };
+    priceMap[q.symbol] = quoteToPriceEntry(q);
   }
   const prevCloseBySymbol: Record<string, number | undefined> = {};
   for (const q of pricesQ.data?.quotes ?? []) {
@@ -116,7 +111,11 @@ export default function DashboardPage() {
       const q = priceMap[inv.symbol];
       if (q) {
         if (typeof q.previousClose === "number" && q.previousClose > 0) {
-          const deltaNative = (q.price - q.previousClose) * inv.quantity;
+          // Today's P/L: optionally use the extended-session price when
+          // markets are pre/post and the user opted in. Total/net-worth
+          // calculations below still use q.price (regular close).
+          const todayPrice = sessionPrice(q, settings.extendedHoursPL);
+          const deltaNative = (todayPrice - q.previousClose) * inv.quantity;
           todayPL = deltaNative === 0
             ? 0
             : (deltaNative *

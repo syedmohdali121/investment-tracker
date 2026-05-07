@@ -119,6 +119,17 @@ export default function SettingsPage() {
             label={settings.compactNumbers ? "On" : "Off"}
           />
         </Section>
+
+        <Section
+          title="Extended hours in Today's P/L"
+          hint="When markets are in pre-market or after-hours, use the extended-session price for Today's P/L. Never affects total value or overall P/L — those always use the regular-session price."
+        >
+          <ToggleRow
+            value={settings.extendedHoursPL}
+            onChange={(v) => update("extendedHoursPL", v)}
+            label={settings.extendedHoursPL ? "On" : "Off"}
+          />
+        </Section>
       </div>
 
       <p className="mt-8 text-[11px] text-muted">

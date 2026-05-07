@@ -13,7 +13,7 @@ import {
   usePrices,
   type DividendSeries,
 } from "../providers";
-import { symbolsOf, type PriceMap } from "@/lib/valuation";
+import { quoteToPriceEntry, symbolsOf, type PriceMap } from "@/lib/valuation";
 import { runInsights, type InsightContext } from "@/lib/insights";
 import { InsightCard } from "@/components/insight-card";
 import { DrawdownChart } from "@/components/insights/drawdown-chart";
@@ -44,16 +44,7 @@ export default function InsightsPage() {
   const priceMap: PriceMap = useMemo(() => {
     const m: PriceMap = {};
     for (const q of pricesQ.data?.quotes ?? []) {
-      m[q.symbol] = {
-        price: q.price,
-        currency: q.currency,
-        previousClose: q.previousClose,
-        marketState: q.marketState,
-        preMarketPrice: q.preMarketPrice,
-        preMarketChangePercent: q.preMarketChangePercent,
-        postMarketPrice: q.postMarketPrice,
-        postMarketChangePercent: q.postMarketChangePercent,
-      };
+      m[q.symbol] = quoteToPriceEntry(q);
     }
     return m;
   }, [pricesQ.data]);

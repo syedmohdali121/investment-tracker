@@ -79,7 +79,7 @@ async function writeStore(store: TransactionStore): Promise<void> {
  * BUY at its `createdAt` date for `quantity × avgCost`. The user can then
  * delete or edit that synthetic entry once they enter their real history.
  */
-let backfilled = new Set<string>();
+const backfilled: Set<string> = new Set<string>();
 async function backfillIfNeeded(): Promise<void> {
   const uid = await requireCurrentUserId();
   if (backfilled.has(uid)) return;
