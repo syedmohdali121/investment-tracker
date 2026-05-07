@@ -129,6 +129,13 @@ export function AddInvestmentForm() {
   const [mfSearching, setMfSearching] = useState(false);
   const [showAllCategories, setShowAllCategories] = useState(false);
   const mfDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [symbolResults, setSymbolResults] = useState<
+    Array<{ symbol: string; name: string; exchange: string; quoteType: string }>
+  >([]);
+  const [symbolSearching, setSymbolSearching] = useState(false);
+  const [symbolFocused, setSymbolFocused] = useState(false);
+  const symbolDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const symbolBlurTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isStockForm =
     category === "US_STOCK" ||
@@ -176,6 +183,34 @@ export function AddInvestmentForm() {
       if (mfDebounceRef.current) clearTimeout(mfDebounceRef.current);
     };
   }, [mfQuery, isMfForm]);
+
+  useEffect(() => {
+    const isStockSearchForm =
+      category === "US_STOCK" || category === "INDIAN_STOCK";
+    if (!isStockSearchForm || symbol.trim().length < 1) {
+      setSymbolResults([]);
+      return;
+    }
+    if (symbolDebounceRef.current) clearTimeout(symbolDebounceRef.current);
+    symbolDebounceRef.current = setTimeout(async () => {
+      setSymbolSearching(true);
+      try {
+        const region = category === "US_STOCK" ? "US" : "IN";
+        const res = await fetch(
+          `/api/symbol-search?q=${encodeURIComponent(symbol.trim())}&region=${region}`,
+        );
+        const json = await res.json();
+        setSymbolResults(json.results ?? []);
+      } catch {
+        setSymbolResults([]);
+      } finally {
+        setSymbolSearching(false);
+      }
+    }, 250);
+    return () => {
+      if (symbolDebounceRef.current) clearTimeout(symbolDebounceRef.current);
+    };
+  }, [symbol, category]);
 
   function resetForm() {
     setSymbol("");
@@ -500,20 +535,74 @@ export function AddInvestmentForm() {
               )}
               <Field label={isMfForm ? "AMFI Scheme Code" : "Symbol"}>
                 <div className="flex items-center gap-2">
-                  <input
-                    value={symbol}
-                    onChange={(e) => setSymbol(e.target.value)}
-                    onBlur={fetchPreview}
-                    placeholder={
-                      category === "US_STOCK"
-                        ? "e.g. AAPL"
-                        : category === "INDIAN_STOCK"
-                          ? "e.g. RELIANCE.NS"
-                          : "e.g. 120503"
-                    }
-                    className="input"
-                    autoComplete="off"
-                  />
+                  <div className="relative flex-1">
+                    <input
+                      value={symbol}
+                      onChange={(e) => setSymbol(e.target.value)}
+                      onFocus={() => setSymbolFocused(true)}
+                      onBlur={() => {
+                        // Defer hiding so a click on a result still registers.
+                        if (symbolBlurTimerRef.current)
+                          clearTimeout(symbolBlurTimerRef.current);
+                        symbolBlurTimerRef.current = setTimeout(() => {
+                          setSymbolFocused(false);
+                          fetchPreview();
+                        }, 150);
+                      }}
+                      placeholder={
+                        category === "US_STOCK"
+                          ? "e.g. AAPL or Microsoft"
+                          : category === "INDIAN_STOCK"
+                            ? "e.g. RELIANCE or TCS"
+                            : "e.g. 120503"
+                      }
+                      className="input"
+                      autoComplete="off"
+                    />
+                    {!isMfForm &&
+                      symbolFocused &&
+                      symbol.trim().length >= 1 &&
+                      (symbolSearching || symbolResults.length > 0) && (
+                        <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-56 overflow-y-auto rounded-lg border border-white/10 bg-[var(--color-background)] shadow-xl">
+                          {symbolSearching && symbolResults.length === 0 && (
+                            <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted">
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              Searching…
+                            </div>
+                          )}
+                          {symbolResults.map((r) => (
+                            <button
+                              type="button"
+                              key={r.symbol}
+                              onMouseDown={(e) => {
+                                // Prevent input blur from firing before the click.
+                                e.preventDefault();
+                              }}
+                              onClick={() => {
+                                if (symbolBlurTimerRef.current)
+                                  clearTimeout(symbolBlurTimerRef.current);
+                                setSymbol(r.symbol);
+                                setSymbolResults([]);
+                                setSymbolFocused(false);
+                                // Fetch a fresh preview for the picked symbol.
+                                setTimeout(fetchPreview, 0);
+                              }}
+                              className="block w-full border-b border-white/5 px-3 py-2 text-left text-xs transition last:border-0 hover:bg-white/5"
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="font-semibold">{r.symbol}</span>
+                                <span className="text-[10px] text-muted">
+                                  {r.exchange}
+                                </span>
+                              </div>
+                              <div className="truncate text-[11px] text-muted">
+                                {r.name}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                  </div>
                   <button
                     type="button"
                     onClick={fetchPreview}

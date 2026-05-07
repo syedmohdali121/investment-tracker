@@ -75,6 +75,77 @@ export async function searchMutualFunds(
   return results;
 }
 
+export type SymbolSearchHit = {
+  symbol: string;
+  name: string;
+  exchange: string;
+  quoteType: string;
+};
+
+const SYMBOL_SEARCH_TTL_MS = 5 * 60_000;
+const symbolSearchCache = new Map<string, CacheEntry<SymbolSearchHit[]>>();
+
+/**
+ * Free-text search for stock/ETF tickers via Yahoo. `region` biases results:
+ * "IN" prefers NSE/BSE listings; "US" filters out Indian listings; undefined
+ * returns whatever Yahoo ranks highest.
+ */
+export async function searchSymbols(
+  query: string,
+  region: "US" | "IN" | undefined = undefined,
+  limit = 10,
+): Promise<SymbolSearchHit[]> {
+  const q = query.trim();
+  if (q.length < 1) return [];
+  const cacheKey = `${region ?? "ANY"}|${q.toLowerCase()}`;
+  const now = Date.now();
+  const cached = symbolSearchCache.get(cacheKey);
+  if (cached && cached.expires > now) return cached.value;
+  try {
+    const result = (await (
+      yahooFinance as unknown as {
+        search: (
+          q: string,
+          opts?: { quotesCount?: number; newsCount?: number },
+        ) => Promise<{
+          quotes?: Array<Record<string, unknown>>;
+        }>;
+      }
+    ).search(q, { quotesCount: 25, newsCount: 0 })) as {
+      quotes?: Array<Record<string, unknown>>;
+    };
+    const allowedTypes = new Set(["EQUITY", "ETF", "MUTUALFUND", "INDEX"]);
+    const hits: SymbolSearchHit[] = [];
+    for (const r of result.quotes ?? []) {
+      const symbol = r.symbol as string | undefined;
+      if (!symbol) continue;
+      const quoteType = (r.quoteType as string | undefined) ?? "";
+      if (!allowedTypes.has(quoteType)) continue;
+      const isIndian = symbol.endsWith(".NS") || symbol.endsWith(".BO");
+      if (region === "IN" && !isIndian) continue;
+      if (region === "US" && isIndian) continue;
+      hits.push({
+        symbol,
+        name:
+          (r.longname as string | undefined) ??
+          (r.shortname as string | undefined) ??
+          symbol,
+        exchange: (r.exchDisp as string | undefined) ?? "",
+        quoteType,
+      });
+      if (hits.length >= limit) break;
+    }
+    symbolSearchCache.set(cacheKey, {
+      value: hits,
+      expires: now + SYMBOL_SEARCH_TTL_MS,
+    });
+    return hits;
+  } catch (err) {
+    console.error("[market] searchSymbols error:", err);
+    return cached?.value ?? [];
+  }
+}
+
 function normalizeCurrency(c: string | undefined): Currency {
   if (!c) return "USD";
   const up = c.toUpperCase();
