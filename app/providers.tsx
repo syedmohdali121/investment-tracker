@@ -169,7 +169,7 @@ export function useFx() {
   });
 }
 
-export type HistoryRange = "1d" | "5d" | "1y" | "3y" | "5y";
+export type HistoryRange = "1d" | "5d" | "1m" | "1y" | "3y" | "5y";
 
 export type IntradayPoint = { t: number; close: number };
 export type IntradaySeries = {

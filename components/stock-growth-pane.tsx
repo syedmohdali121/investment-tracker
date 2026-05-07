@@ -24,6 +24,7 @@ import { cn } from "@/lib/cn";
 const RANGES: Array<{ value: HistoryRange; label: string }> = [
   { value: "1d", label: "1D" },
   { value: "5d", label: "5D" },
+  { value: "1m", label: "1M" },
   { value: "1y", label: "1Y" },
   { value: "3y", label: "3Y" },
   { value: "5y", label: "5Y" },
@@ -692,6 +693,9 @@ function fmtTick(t: number, range: HistoryRange): string {
     });
   }
   if (range === "5d") {
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  }
+  if (range === "1m") {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
   if (range === "1y") {

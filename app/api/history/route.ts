@@ -4,7 +4,7 @@ import { getHistory, type HistoryRange } from "@/lib/market";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const VALID: HistoryRange[] = ["1d", "5d", "1y", "3y", "5y"];
+const VALID: HistoryRange[] = ["1d", "5d", "1m", "1y", "3y", "5y"];
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
