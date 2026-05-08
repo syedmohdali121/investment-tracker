@@ -42,3 +42,6 @@ next-env.d.ts
 
 # local data
 /data
+*.db
+*.db-wal
+*.db-shm

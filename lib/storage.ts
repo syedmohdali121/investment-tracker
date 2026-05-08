@@ -1,150 +1,246 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   InvestmentInput,
   InvestmentInputSchema,
   Investment,
-  Store,
-  StoreSchema,
+  isStock,
 } from "./types";
 import { requireCurrentUserId } from "./user-context";
-import { userDataDir } from "./users";
-import { atomicWriteJson, withUserLock } from "./file-lock";
-
-async function dataFile(): Promise<string> {
-  const uid = await requireCurrentUserId();
-  const dir = userDataDir(uid);
-  await fs.mkdir(dir, { recursive: true });
-  return path.join(dir, "investments.json");
-}
+import { getDb } from "./db";
 
 /**
- * Serialize a read-modify-write pair against the current user's storage.
- * The lock key is the user id, so two different users do NOT block each
- * other and `investments.json` shares the lock with `transactions.json`
- * (both call `withUserLock(uid, ...)` via the shared helper).
+ * SQLite-backed storage for the investments registry.
+ *
+ * The on-disk representation is a flat `investments` table with nullable
+ * variant-specific columns; the discriminated union (`Stock` vs `Cash`) is
+ * reconstructed at the boundary by `rowToInvestment`. Domain validation
+ * stays in the Zod schemas in `lib/types.ts` — those are still authoritative
+ * at the API boundary, the DB just stores bytes.
  */
-async function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const uid = await requireCurrentUserId();
-  return withUserLock(uid, fn);
-}
 
-async function ensureFile(): Promise<string> {
-  const file = await dataFile();
-  try {
-    await fs.access(file);
-  } catch {
-    const empty: Store = { investments: [], updatedAt: new Date().toISOString() };
-    await atomicWriteJson(file, empty);
+type InvestmentRow = {
+  id: string;
+  user_id: string;
+  category: string;
+  symbol: string | null;
+  quantity: number | null;
+  avg_cost: number | null;
+  label: string | null;
+  balance: number | null;
+  principal: number | null;
+  interest_rate: number | null;
+  maturity_date: string | null;
+  currency: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  sort_index: number;
+};
+
+function rowToInvestment(r: InvestmentRow): Investment {
+  if (
+    r.category === "US_STOCK" ||
+    r.category === "INDIAN_STOCK" ||
+    r.category === "MUTUAL_FUND"
+  ) {
+    return {
+      id: r.id,
+      category: r.category as Investment["category"],
+      symbol: r.symbol ?? "",
+      quantity: r.quantity ?? 0,
+      avgCost: r.avg_cost ?? 0,
+      currency: r.currency as Investment["currency"],
+      ...(r.notes ? { notes: r.notes } : {}),
+      createdAt: r.created_at,
+      ...(r.updated_at ? { updatedAt: r.updated_at } : {}),
+    } as Investment;
   }
-  return file;
+  return {
+    id: r.id,
+    category: r.category as Investment["category"],
+    label: r.label ?? "",
+    balance: r.balance ?? 0,
+    currency: r.currency as Investment["currency"],
+    ...(r.principal != null ? { principal: r.principal } : {}),
+    ...(r.interest_rate != null ? { interestRate: r.interest_rate } : {}),
+    ...(r.maturity_date != null ? { maturityDate: r.maturity_date } : {}),
+    ...(r.notes ? { notes: r.notes } : {}),
+    createdAt: r.created_at,
+    ...(r.updated_at ? { updatedAt: r.updated_at } : {}),
+  } as Investment;
 }
 
-export async function readStore(): Promise<Store> {
-  const file = await ensureFile();
-  const raw = await fs.readFile(file, "utf8");
-  try {
-    const parsed = JSON.parse(raw);
-    return StoreSchema.parse(parsed);
-  } catch {
-    const empty: Store = { investments: [], updatedAt: new Date().toISOString() };
-    await atomicWriteJson(file, empty);
-    return empty;
+/** Flattens an Investment into the DB row shape, including NULLs for the
+ *  variant fields the row doesn't use. */
+function investmentToParams(
+  inv: Investment,
+  userId: string,
+  sortIndex: number,
+): InvestmentRow {
+  const base = {
+    id: inv.id,
+    user_id: userId,
+    category: inv.category,
+    currency: inv.currency,
+    notes: inv.notes ?? null,
+    created_at: inv.createdAt,
+    updated_at: inv.updatedAt ?? inv.createdAt,
+    sort_index: sortIndex,
+  };
+  if (isStock(inv)) {
+    return {
+      ...base,
+      symbol: inv.symbol,
+      quantity: inv.quantity,
+      avg_cost: inv.avgCost,
+      label: null,
+      balance: null,
+      principal: null,
+      interest_rate: null,
+      maturity_date: null,
+    };
   }
-}
-
-async function writeStore(store: Store): Promise<void> {
-  const file = await dataFile();
-  const next: Store = { ...store, updatedAt: new Date().toISOString() };
-  await atomicWriteJson(file, next);
+  return {
+    ...base,
+    symbol: null,
+    quantity: null,
+    avg_cost: null,
+    label: inv.label,
+    balance: inv.balance,
+    principal: inv.principal ?? null,
+    interest_rate: inv.interestRate ?? null,
+    maturity_date: inv.maturityDate ?? null,
+  };
 }
 
 export async function listInvestments(): Promise<Investment[]> {
-  const store = await readStore();
-  return store.investments;
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT * FROM investments
+       WHERE user_id = ?
+       ORDER BY sort_index ASC, created_at ASC`,
+    )
+    .all(uid) as InvestmentRow[];
+  return rows.map(rowToInvestment);
 }
 
 export async function addInvestment(input: unknown): Promise<Investment> {
+  const uid = await requireCurrentUserId();
   const parsed = InvestmentInputSchema.parse(input) as InvestmentInput;
-  return withLock(async () => {
-    const store = await readStore();
-    const now = new Date().toISOString();
-    // Honor a user-supplied purchase date so tax holding-period logic
-    // works when backfilling old positions. Fall back to "now" if missing
-    // or unparseable.
-    const supplied = (parsed as { createdAt?: string }).createdAt;
-    const createdAt =
-      supplied && Number.isFinite(Date.parse(supplied))
-        ? new Date(supplied).toISOString()
-        : now;
-    const inv = {
-      ...parsed,
-      id: randomUUID(),
-      createdAt,
-      updatedAt: now,
-    } as Investment;
-    store.investments.push(inv);
-    await writeStore(store);
-    return inv;
+  const now = new Date().toISOString();
+  // Honor a user-supplied purchase date so tax holding-period logic works
+  // when backfilling old positions.
+  const supplied = (parsed as { createdAt?: string }).createdAt;
+  const createdAt =
+    supplied && Number.isFinite(Date.parse(supplied))
+      ? new Date(supplied).toISOString()
+      : now;
+  const inv = {
+    ...parsed,
+    id: randomUUID(),
+    createdAt,
+    updatedAt: now,
+  } as Investment;
+
+  const db = getDb();
+  const insert = db.prepare(`
+    INSERT INTO investments (
+      id, user_id, category, symbol, quantity, avg_cost,
+      label, balance, principal, interest_rate, maturity_date,
+      currency, notes, created_at, updated_at, sort_index
+    ) VALUES (
+      @id, @user_id, @category, @symbol, @quantity, @avg_cost,
+      @label, @balance, @principal, @interest_rate, @maturity_date,
+      @currency, @notes, @created_at, @updated_at, @sort_index
+    )
+  `);
+  const tx = db.transaction(() => {
+    const max = db
+      .prepare("SELECT MAX(sort_index) AS n FROM investments WHERE user_id = ?")
+      .get(uid) as { n: number | null } | undefined;
+    const next = (max?.n ?? -1) + 1;
+    insert.run(investmentToParams(inv, uid, next));
   });
+  tx();
+  return inv;
 }
 
 export async function updateInvestment(
   id: string,
   patch: unknown,
 ): Promise<Investment | null> {
-  return withLock(async () => {
-    const store = await readStore();
-    const idx = store.investments.findIndex((i) => i.id === id);
-    if (idx === -1) return null;
-    const current = store.investments[idx];
-    const merged = { ...current, ...(patch as object) } as Investment;
-    // Re-validate as input shape (allowing same category)
-    const validated = InvestmentInputSchema.parse({
-      ...merged,
-    });
-    // Allow editing the purchase date so users can correct a mis-dated
-    // entry (e.g. one created before backdating was supported).
-    const suppliedCreatedAt = (validated as { createdAt?: string }).createdAt;
-    const nextCreatedAt =
-      suppliedCreatedAt && Number.isFinite(Date.parse(suppliedCreatedAt))
-        ? new Date(suppliedCreatedAt).toISOString()
-        : current.createdAt;
-    const next = {
-      ...current,
-      ...validated,
-      id: current.id,
-      createdAt: nextCreatedAt,
-      updatedAt: new Date().toISOString(),
-    } as Investment;
-    store.investments[idx] = next;
-    await writeStore(store);
-    return next;
-  });
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM investments WHERE id = ? AND user_id = ?")
+    .get(id, uid) as InvestmentRow | undefined;
+  if (!row) return null;
+  const current = rowToInvestment(row);
+  const merged = { ...current, ...(patch as object) } as Investment;
+  const validated = InvestmentInputSchema.parse({ ...merged });
+  const suppliedCreatedAt = (validated as { createdAt?: string }).createdAt;
+  const nextCreatedAt =
+    suppliedCreatedAt && Number.isFinite(Date.parse(suppliedCreatedAt))
+      ? new Date(suppliedCreatedAt).toISOString()
+      : current.createdAt;
+  const next = {
+    ...current,
+    ...validated,
+    id: current.id,
+    createdAt: nextCreatedAt,
+    updatedAt: new Date().toISOString(),
+  } as Investment;
+
+  const params = investmentToParams(next, uid, row.sort_index);
+  db.prepare(
+    `UPDATE investments SET
+       category = @category,
+       symbol = @symbol,
+       quantity = @quantity,
+       avg_cost = @avg_cost,
+       label = @label,
+       balance = @balance,
+       principal = @principal,
+       interest_rate = @interest_rate,
+       maturity_date = @maturity_date,
+       currency = @currency,
+       notes = @notes,
+       created_at = @created_at,
+       updated_at = @updated_at
+     WHERE id = @id AND user_id = @user_id`,
+  ).run(params);
+  return next;
 }
 
 export async function deleteInvestment(id: string): Promise<boolean> {
-  return withLock(async () => {
-    const store = await readStore();
-    const before = store.investments.length;
-    store.investments = store.investments.filter((i) => i.id !== id);
-    if (store.investments.length === before) return false;
-    await writeStore(store);
-    return true;
-  });
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const result = db
+    .prepare("DELETE FROM investments WHERE id = ? AND user_id = ?")
+    .run(id, uid);
+  return result.changes > 0;
 }
 
 export async function reorderInvestments(ids: string[]): Promise<boolean> {
-  return withLock(async () => {
-    const store = await readStore();
-    if (ids.length !== store.investments.length) return false;
-    const byId = new Map(store.investments.map((i) => [i.id, i]));
-    if (ids.some((id) => !byId.has(id))) return false;
-    store.investments = ids.map((id) => byId.get(id)!);
-    await writeStore(store);
-    return true;
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM investments WHERE user_id = ?")
+    .all(uid) as Array<{ id: string }>;
+  if (existing.length !== ids.length) return false;
+  const have = new Set(existing.map((r) => r.id));
+  if (ids.some((id) => !have.has(id))) return false;
+
+  const update = db.prepare(
+    "UPDATE investments SET sort_index = ? WHERE id = ? AND user_id = ?",
+  );
+  const tx = db.transaction(() => {
+    ids.forEach((id, idx) => update.run(idx, id, uid));
   });
+  tx();
+  return true;
 }
 
 /**
@@ -157,35 +253,48 @@ export async function applyDerivedHolding(
   investmentId: string,
   derived: { quantity: number; avgCost: number; firstBuyDate: string | null },
 ): Promise<Investment | null> {
-  return withLock(() => applyDerivedHoldingInLock(investmentId, derived));
+  return applyDerivedHoldingInLock(investmentId, derived);
 }
 
 /**
- * Same as `applyDerivedHolding` but does NOT acquire the user lock.
- * Call only from a context that already holds it (e.g. inside
- * `transactions-storage`'s `withLock`) — otherwise reentry on the shared
- * per-user lock would deadlock.
+ * Same as `applyDerivedHolding`, kept as a separate name so callers in
+ * `transactions-storage.ts` that wrap their own `db.transaction(...)`
+ * around the recompute keep reading naturally. With SQLite both functions
+ * are functionally identical (each statement runs in its own implicit
+ * transaction or in the caller-supplied one).
  */
 export async function applyDerivedHoldingInLock(
   investmentId: string,
   derived: { quantity: number; avgCost: number; firstBuyDate: string | null },
 ): Promise<Investment | null> {
-  const store = await readStore();
-  const idx = store.investments.findIndex((i) => i.id === investmentId);
-  if (idx === -1) return null;
-  const current = store.investments[idx];
-  if (current.category !== "US_STOCK" && current.category !== "INDIAN_STOCK") {
-    return current;
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM investments WHERE id = ? AND user_id = ?")
+    .get(investmentId, uid) as InvestmentRow | undefined;
+  if (!row) return null;
+  if (row.category !== "US_STOCK" && row.category !== "INDIAN_STOCK") {
+    return rowToInvestment(row);
   }
-  const next: Investment = {
-    ...current,
+  const updatedAt = new Date().toISOString();
+  const createdAt = derived.firstBuyDate ?? row.created_at;
+  db.prepare(
+    `UPDATE investments
+       SET quantity = ?, avg_cost = ?, created_at = ?, updated_at = ?
+     WHERE id = ? AND user_id = ?`,
+  ).run(
+    derived.quantity,
+    derived.avgCost,
+    createdAt,
+    updatedAt,
+    investmentId,
+    uid,
+  );
+  return rowToInvestment({
+    ...row,
     quantity: derived.quantity,
-    avgCost: derived.avgCost,
-    createdAt: derived.firstBuyDate ?? current.createdAt,
-    updatedAt: new Date().toISOString(),
-  };
-  store.investments[idx] = next;
-  await writeStore(store);
-  return next;
+    avg_cost: derived.avgCost,
+    created_at: createdAt,
+    updated_at: updatedAt,
+  });
 }
-

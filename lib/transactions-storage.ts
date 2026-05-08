@@ -1,130 +1,102 @@
-import { promises as fs } from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import {
   isStock,
   Transaction,
   TransactionInput,
   TransactionInputSchema,
-  TransactionStore,
-  TransactionStoreSchema,
 } from "./types";
-import { applyDerivedHoldingInLock, listInvestments } from "./storage";
-import { deriveFromTransactions, syntheticInitialBuy } from "./transactions";
+import { applyDerivedHoldingInLock } from "./storage";
+import { deriveFromTransactions } from "./transactions";
 import { requireCurrentUserId } from "./user-context";
-import { userDataDir } from "./users";
-import { atomicWriteJson, withUserLock } from "./file-lock";
-
-async function dataFile(): Promise<string> {
-  const uid = await requireCurrentUserId();
-  const dir = userDataDir(uid);
-  await fs.mkdir(dir, { recursive: true });
-  return path.join(dir, "transactions.json");
-}
+import { getDb } from "./db";
 
 /**
- * Per-user lock shared with `storage.ts`. See `lib/file-lock.ts` for why.
- * The shared key means a `recomputeHolding` call inside a tx mutation
- * (which writes to `investments.json`) is serialized against any
- * concurrent direct `updateInvestment` for the same user.
- */
-async function withLock<T>(fn: () => Promise<T>): Promise<T> {
-  const uid = await requireCurrentUserId();
-  return withUserLock(uid, fn);
-}
-
-async function ensureFile(): Promise<string> {
-  const file = await dataFile();
-  try {
-    await fs.access(file);
-  } catch {
-    const empty: TransactionStore = {
-      transactions: [],
-      updatedAt: new Date().toISOString(),
-    };
-    await atomicWriteJson(file, empty);
-  }
-  return file;
-}
-
-async function readStore(): Promise<TransactionStore> {
-  const file = await ensureFile();
-  const raw = await fs.readFile(file, "utf8");
-  try {
-    const parsed = JSON.parse(raw);
-    return TransactionStoreSchema.parse(parsed);
-  } catch {
-    const empty: TransactionStore = {
-      transactions: [],
-      updatedAt: new Date().toISOString(),
-    };
-    await atomicWriteJson(file, empty);
-    return empty;
-  }
-}
-
-async function writeStore(store: TransactionStore): Promise<void> {
-  const file = await dataFile();
-  const next: TransactionStore = {
-    ...store,
-    updatedAt: new Date().toISOString(),
-  };
-  await atomicWriteJson(file, next);
-}
-
-/**
- * Ensure every existing stock investment has at least one transaction in
- * the ledger. Runs at most once per process startup; safe to call on every
- * read because it's a no-op once the ledger is populated.
+ * SQLite-backed transaction ledger.
  *
- * For each stock holding without any transactions, we synthesize a single
- * BUY at its `createdAt` date for `quantity × avgCost`. The user can then
- * delete or edit that synthetic entry once they enter their real history.
+ * Each mutation that affects the derived holding state (BUY/SELL on a
+ * stock) wraps its INSERT/UPDATE/DELETE plus the recompute in a single
+ * `db.transaction(...)` so the transaction row and the derived
+ * `investments.quantity` / `avg_cost` always commit (or roll back) together.
+ *
+ * The synthetic-buy backfill that the JSON storage did lazily on first read
+ * has been retired. It can be reintroduced as part of the JSON → SQLite
+ * import (`lib/db.ts`) if any user upgrades with stocks that have no
+ * transactions yet.
  */
-const backfilled: Set<string> = new Set<string>();
-async function backfillIfNeeded(): Promise<void> {
-  const uid = await requireCurrentUserId();
-  if (backfilled.has(uid)) return;
-  await withLock(async () => {
-    if (backfilled.has(uid)) return;
-    const store = await readStore();
-    const investments = await listInvestments();
-    const seen = new Set(store.transactions.map((t) => t.investmentId));
-    const additions: Transaction[] = [];
-    for (const inv of investments) {
-      if (!isStock(inv)) continue;
-      if (seen.has(inv.id)) continue;
-      if (!(inv.quantity > 0)) continue;
-      additions.push(syntheticInitialBuy(inv, randomUUID()));
-    }
-    if (additions.length > 0) {
-      store.transactions.push(...additions);
-      await writeStore(store);
-    }
-    backfilled.add(uid);
-  });
+
+type TransactionRow = {
+  id: string;
+  user_id: string;
+  investment_id: string;
+  type: string;
+  date: string;
+  quantity: number;
+  price: number;
+  fees: number;
+  currency: string;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+function rowToTransaction(r: TransactionRow): Transaction {
+  return {
+    id: r.id,
+    investmentId: r.investment_id,
+    type: r.type as Transaction["type"],
+    date: r.date,
+    quantity: r.quantity,
+    price: r.price,
+    fees: r.fees,
+    currency: r.currency as Transaction["currency"],
+    ...(r.notes ? { notes: r.notes } : {}),
+    createdAt: r.created_at,
+    ...(r.updated_at ? { updatedAt: r.updated_at } : {}),
+  };
 }
 
 export async function listTransactions(
   filter?: { investmentId?: string },
 ): Promise<Transaction[]> {
-  await backfillIfNeeded();
-  const store = await readStore();
-  let rows = store.transactions;
-  if (filter?.investmentId) {
-    rows = rows.filter((t) => t.investmentId === filter.investmentId);
-  }
-  return rows.slice().sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const rows = filter?.investmentId
+    ? (db
+        .prepare(
+          `SELECT * FROM transactions
+           WHERE user_id = ? AND investment_id = ?
+           ORDER BY date DESC`,
+        )
+        .all(uid, filter.investmentId) as TransactionRow[])
+    : (db
+        .prepare(
+          `SELECT * FROM transactions
+           WHERE user_id = ?
+           ORDER BY date DESC`,
+        )
+        .all(uid) as TransactionRow[]);
+  return rows.map(rowToTransaction);
 }
 
-async function recomputeHolding(investmentId: string): Promise<void> {
-  const store = await readStore();
-  const txs = store.transactions.filter((t) => t.investmentId === investmentId);
-  if (txs.length === 0) return;
-  const derived = deriveFromTransactions(txs);
-  // Caller already holds the per-user lock (this is only called from inside
-  // `withLock(...)` blocks below), so we use the unlocked variant to avoid
-  // deadlock on the shared per-user lock.
+/**
+ * Recompute and write the derived holding fields for `investmentId` from
+ * its full transaction history. Must be called from inside a
+ * `db.transaction(...)` block so the txn write and the derived rewrite
+ * commit together.
+ */
+async function recomputeHolding(
+  uid: string,
+  investmentId: string,
+): Promise<void> {
+  const db = getDb();
+  const rows = db
+    .prepare(
+      `SELECT * FROM transactions
+       WHERE user_id = ? AND investment_id = ?`,
+    )
+    .all(uid, investmentId) as TransactionRow[];
+  if (rows.length === 0) return;
+  const derived = deriveFromTransactions(rows.map(rowToTransaction));
   await applyDerivedHoldingInLock(investmentId, {
     quantity: derived.quantity,
     avgCost: derived.avgCost,
@@ -133,75 +105,142 @@ async function recomputeHolding(investmentId: string): Promise<void> {
 }
 
 export async function addTransaction(input: unknown): Promise<Transaction> {
-  await backfillIfNeeded();
+  const uid = await requireCurrentUserId();
   const parsed = TransactionInputSchema.parse(input) as TransactionInput;
-  // Validate that the linked investment exists and is a stock.
-  const investments = await listInvestments();
-  const inv = investments.find((i) => i.id === parsed.investmentId);
-  if (!inv) throw new Error("Investment not found");
-  if (!isStock(inv)) throw new Error("Transactions are only supported for stocks");
+  const db = getDb();
 
-  return withLock(async () => {
-    const store = await readStore();
-    const now = new Date().toISOString();
-    // Default fees to 0 in storage so derivation is unambiguous.
-    const tx: Transaction = {
-      ...parsed,
-      fees: parsed.fees ?? 0,
-      id: randomUUID(),
-      createdAt: now,
-      updatedAt: now,
-    };
-    store.transactions.push(tx);
-    await writeStore(store);
-    await recomputeHolding(tx.investmentId);
-    return tx;
+  const invRow = db
+    .prepare("SELECT id, category FROM investments WHERE id = ? AND user_id = ?")
+    .get(parsed.investmentId, uid) as
+    | { id: string; category: Transaction["currency"] | string }
+    | undefined;
+  if (!invRow) throw new Error("Investment not found");
+  // Reuse `isStock` semantics: only stock-shaped categories get a ledger.
+  const isStockCategory =
+    invRow.category === "US_STOCK" ||
+    invRow.category === "INDIAN_STOCK" ||
+    invRow.category === "MUTUAL_FUND";
+  if (!isStockCategory) {
+    // Defensive — `isStock` is also used elsewhere; mirror its message.
+    void isStock; // imported for parity with the previous module
+    throw new Error("Transactions are only supported for stocks");
+  }
+
+  const now = new Date().toISOString();
+  const tx: Transaction = {
+    ...parsed,
+    fees: parsed.fees ?? 0,
+    id: randomUUID(),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const insert = db.prepare(`
+    INSERT INTO transactions (
+      id, user_id, investment_id, type, date, quantity, price, fees,
+      currency, notes, created_at, updated_at
+    ) VALUES (
+      @id, @user_id, @investment_id, @type, @date, @quantity, @price, @fees,
+      @currency, @notes, @created_at, @updated_at
+    )
+  `);
+
+  // Derived recompute reads back from the same DB; wrap both in one tx so
+  // a partial failure rolls everything back.
+  const work = db.transaction(() => {
+    insert.run({
+      id: tx.id,
+      user_id: uid,
+      investment_id: tx.investmentId,
+      type: tx.type,
+      date: tx.date,
+      quantity: tx.quantity,
+      price: tx.price,
+      fees: tx.fees,
+      currency: tx.currency,
+      notes: tx.notes ?? null,
+      created_at: tx.createdAt,
+      updated_at: tx.updatedAt ?? tx.createdAt,
+    });
   });
+  work();
+  await recomputeHolding(uid, tx.investmentId);
+  return tx;
 }
 
 export async function updateTransaction(
   id: string,
   patch: unknown,
 ): Promise<Transaction | null> {
-  await backfillIfNeeded();
-  return withLock(async () => {
-    const store = await readStore();
-    const idx = store.transactions.findIndex((t) => t.id === id);
-    if (idx === -1) return null;
-    const current = store.transactions[idx];
-    const merged = { ...current, ...(patch as object) };
-    const validated = TransactionInputSchema.parse({
-      ...merged,
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const row = db
+    .prepare("SELECT * FROM transactions WHERE id = ? AND user_id = ?")
+    .get(id, uid) as TransactionRow | undefined;
+  if (!row) return null;
+  const current = rowToTransaction(row);
+  const merged = { ...current, ...(patch as object) };
+  const validated = TransactionInputSchema.parse({ ...merged });
+  const next: Transaction = {
+    ...current,
+    ...validated,
+    fees: validated.fees ?? current.fees ?? 0,
+    id: current.id,
+    createdAt: current.createdAt,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const update = db.prepare(`
+    UPDATE transactions SET
+      investment_id = @investment_id,
+      type = @type,
+      date = @date,
+      quantity = @quantity,
+      price = @price,
+      fees = @fees,
+      currency = @currency,
+      notes = @notes,
+      updated_at = @updated_at
+    WHERE id = @id AND user_id = @user_id
+  `);
+
+  const work = db.transaction(() => {
+    update.run({
+      id: next.id,
+      user_id: uid,
+      investment_id: next.investmentId,
+      type: next.type,
+      date: next.date,
+      quantity: next.quantity,
+      price: next.price,
+      fees: next.fees,
+      currency: next.currency,
+      notes: next.notes ?? null,
+      updated_at: next.updatedAt ?? next.createdAt,
     });
-    const next: Transaction = {
-      ...current,
-      ...validated,
-      fees: validated.fees ?? current.fees ?? 0,
-      id: current.id,
-      createdAt: current.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-    store.transactions[idx] = next;
-    await writeStore(store);
-    // If investmentId changed, recompute both. (Rare but cheap.)
-    await recomputeHolding(next.investmentId);
-    if (current.investmentId !== next.investmentId) {
-      await recomputeHolding(current.investmentId);
-    }
-    return next;
   });
+  work();
+
+  await recomputeHolding(uid, next.investmentId);
+  if (current.investmentId !== next.investmentId) {
+    // Reattaching a transaction is rare but cheap to handle; the old
+    // holding's derived state needs a refresh too.
+    await recomputeHolding(uid, current.investmentId);
+  }
+  return next;
 }
 
 export async function deleteTransaction(id: string): Promise<boolean> {
-  await backfillIfNeeded();
-  return withLock(async () => {
-    const store = await readStore();
-    const idx = store.transactions.findIndex((t) => t.id === id);
-    if (idx === -1) return false;
-    const removed = store.transactions[idx];
-    store.transactions.splice(idx, 1);
-    await writeStore(store);
-    await recomputeHolding(removed.investmentId);
-    return true;
-  });
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const row = db
+    .prepare("SELECT investment_id FROM transactions WHERE id = ? AND user_id = ?")
+    .get(id, uid) as { investment_id: string } | undefined;
+  if (!row) return false;
+  const result = db
+    .prepare("DELETE FROM transactions WHERE id = ? AND user_id = ?")
+    .run(id, uid);
+  if (result.changes === 0) return false;
+  await recomputeHolding(uid, row.investment_id);
+  return true;
 }

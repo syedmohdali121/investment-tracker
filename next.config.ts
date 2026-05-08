@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
     "192.168.29.*",
     "10.0.0.*",
   ],
+  // `better-sqlite3` is a native Node addon. Next's bundler can't process the
+  // `.node` binary, so the import has to stay external for server bundles
+  // (route handlers + server components).
+  serverExternalPackages: ["better-sqlite3"],
 };
 
 export default nextConfig;
