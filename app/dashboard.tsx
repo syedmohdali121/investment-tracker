@@ -39,6 +39,7 @@ import { HoldingsTable } from "@/components/holdings-table";
 import { AnimatedNumber } from "@/components/animated-number";
 import { StockGrowthPane } from "@/components/stock-growth-pane";
 import { CardSkeleton, PaneSkeleton, RowsSkeleton } from "@/components/skeletons";
+import { DailyDiffBadge } from "@/components/daily-diff-badge";
 import { CATEGORY_META, Investment, StockInvestment, isStock } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useQueryClient } from "@tanstack/react-query";
@@ -233,6 +234,17 @@ export default function DashboardPage() {
         <EmptyState />
       ) : (
         <>
+          <DailyDiffBadge
+            total={total}
+            currency={currency}
+            perHolding={Object.fromEntries(
+              holdingItems.map((h) => [
+                h.key,
+                { label: h.label, value: h.value },
+              ]),
+            )}
+            ready={!pricesQ.isLoading && !fxQ.isLoading && total > 0}
+          />
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
             <Card delay={0}>
               <div className="flex items-center justify-between">
