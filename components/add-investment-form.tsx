@@ -23,8 +23,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { useInvestments } from "@/app/providers";
+import {
+  useAddInvestment,
+  useUpdateInvestment,
+  useDeleteInvestment,
+} from "@/lib/mutations";
 import {
   CATEGORY_META,
   Category,
@@ -105,8 +109,10 @@ type SymbolPreview = {
 };
 
 export function AddInvestmentForm() {
-  const qc = useQueryClient();
   const investmentsQ = useInvestments();
+  const addM = useAddInvestment();
+  const updateM = useUpdateInvestment();
+  const deleteM = useDeleteInvestment();
   const [category, setCategory] = useState<Category>("US_STOCK");
   const [symbol, setSymbol] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -362,22 +368,13 @@ export function AddInvestmentForm() {
           ...(createdAtIso ? { createdAt: createdAtIso } : {}),
         };
       }
-      const url = editingId
-        ? `/api/investments/${editingId}`
-        : "/api/investments";
-      const method = editingId ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || (editingId ? "Failed to update" : "Failed to add"));
+      if (editingId) {
+        await updateM.mutateAsync({ id: editingId, patch: body });
+      } else {
+        await addM.mutateAsync(body as Parameters<typeof addM.mutateAsync>[0]);
       }
       toast.success(editingId ? "Investment updated" : "Investment added");
       resetForm();
-      await qc.invalidateQueries({ queryKey: ["investments"] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");
     } finally {
@@ -386,14 +383,19 @@ export function AddInvestmentForm() {
   }
 
   async function onDelete(id: string) {
-    if (!confirm("Delete this investment?")) return;
-    const res = await fetch(`/api/investments/${id}`, { method: "DELETE" });
-    if (res.ok) {
-      toast.success("Deleted");
-      if (editingId === id) resetForm();
-      await qc.invalidateQueries({ queryKey: ["investments"] });
-    } else {
-      toast.error("Failed to delete");
+    const target = (investmentsQ.data?.investments ?? []).find(
+      (i) => i.id === id,
+    );
+    const label = target
+      ? isStock(target)
+        ? target.symbol
+        : target.label
+      : "investment";
+    if (editingId === id) resetForm();
+    try {
+      await deleteM.mutateAsync({ id, label });
+    } catch {
+      // toast already surfaced inside the hook
     }
   }
 

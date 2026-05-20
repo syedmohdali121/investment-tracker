@@ -34,6 +34,13 @@ export type Settings = {
    * regular-session price regardless of this setting.
    */
   extendedHoursPL: boolean;
+  /**
+   * Privacy mode: when true, all monetary amounts on screen are blurred so
+   * the user can screen-share or take screenshots without exposing values.
+   * The DOM still contains the real numbers (for tooltips, copy, etc.) —
+   * only the rendered text is visually obscured.
+   */
+  hideAmounts: boolean;
 };
 
 const DEFAULTS: Settings = {
@@ -42,6 +49,7 @@ const DEFAULTS: Settings = {
   locale: "en-IN",
   compactNumbers: false,
   extendedHoursPL: false,
+  hideAmounts: false,
 };
 
 const STORAGE_KEY = "portfolio-pulse:settings";

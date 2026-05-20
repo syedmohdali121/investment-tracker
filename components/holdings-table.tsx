@@ -5,9 +5,12 @@ import { Reorder, useDragControls } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
+  ArrowDownAZ,
   ArrowDownRight,
   ArrowUpRight,
+  Filter,
   GripVertical,
+  X,
 } from "lucide-react";
 import {
   CATEGORY_META,
@@ -36,6 +39,25 @@ import { MarketStatusBadge } from "./market-status-badge";
 import { useNow } from "@/lib/use-now";
 
 type IntradayMap = Record<string, IntradaySeries>;
+
+type SortKey =
+  | "custom"
+  | "value-desc"
+  | "gain-desc"
+  | "gain-asc"
+  | "today-desc"
+  | "today-asc"
+  | "name-asc";
+
+const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
+  { value: "custom", label: "Custom (drag)" },
+  { value: "value-desc", label: "Value · highest" },
+  { value: "gain-desc", label: "Gain % · best" },
+  { value: "gain-asc", label: "Gain % · worst" },
+  { value: "today-desc", label: "Today % · best" },
+  { value: "today-asc", label: "Today % · worst" },
+  { value: "name-asc", label: "Name (A–Z)" },
+];
 
 export function HoldingsTable({
   investments,
@@ -75,10 +97,55 @@ export function HoldingsTable({
   }, [intradayQ.data]);
   const now = useNow();
 
+  const [sortBy, setSortBy] = useState<SortKey>("custom");
+  const [filter, setFilter] = useState("");
+  const draggable = sortBy === "custom";
+
+  /**
+   * Compute a numeric/string sort key per holding once, so the comparator
+   * stays cheap. `value` and `today` rely on live data — they re-derive when
+   * `prices`, `intradayMap`, or `usdInr` change. Cash buckets get neutral
+   * defaults (0%) so they fall to the end of percentage-based sorts.
+   */
+  const sortMeta = useMemo(() => {
+    const m = new Map<
+      string,
+      { value: number; gainPct: number; todayPct: number; name: string }
+    >();
+    for (const inv of items) {
+      const value = valueIn(inv, prices, usdInr, display);
+      let gainPct = 0;
+      let todayPct = 0;
+      if (isStock(inv)) {
+        const q = prices[inv.symbol];
+        if (q && inv.avgCost > 0) {
+          gainPct = ((q.price - inv.avgCost) / inv.avgCost) * 100;
+        }
+        if (q && typeof q.previousClose === "number" && q.previousClose > 0) {
+          todayPct = ((q.price - q.previousClose) / q.previousClose) * 100;
+        }
+      } else if (inv.principal !== undefined && inv.principal > 0) {
+        gainPct = ((inv.balance - inv.principal) / inv.principal) * 100;
+      }
+      const name = isStock(inv) ? inv.symbol : inv.label;
+      m.set(inv.id, { value, gainPct, todayPct, name });
+    }
+    return m;
+  }, [items, prices, usdInr, display]);
+
+  const filterLc = filter.trim().toLowerCase();
+  const filteredItems = useMemo(() => {
+    if (!filterLc) return items;
+    return items.filter((inv) => {
+      const name = isStock(inv) ? inv.symbol : inv.label;
+      return name.toLowerCase().includes(filterLc);
+    });
+  }, [items, filterLc]);
+
   if (items.length === 0) return null;
 
   const categories = Array.from(
-    new Set(items.map((i) => i.category)),
+    new Set(filteredItems.map((i) => i.category)),
   ) as Category[];
 
   async function persistOrder(nextAll: Investment[]) {
@@ -125,33 +192,91 @@ export function HoldingsTable({
   }
 
   return (
-    <Reorder.Group
-      axis="y"
-      values={categories}
-      onReorder={onReorderCategories}
-      as="div"
-      className="space-y-6"
-    >
-      {categories.map((cat) => (
-        <CategoryBlock
-          key={cat}
-          cat={cat}
-          items={items}
-          prices={prices}
-          usdInr={usdInr}
-          display={display}
-          intradayMap={intradayMap}
-          now={now}
-          onReorderCategory={onReorderCategory}
-        />
-      ))}
-      <p className="text-xs text-muted">
-        Tip: drag the handle{" "}
-        <GripVertical className="inline-block h-3 w-3 align-text-bottom" /> on a
-        row to reorder within a category, or drag a category header to move the
-        whole section.
-      </p>
-    </Reorder.Group>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[160px] sm:max-w-xs">
+          <Filter className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+          <input
+            type="text"
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter holdings…"
+            aria-label="Filter holdings"
+            className="input pl-8 pr-8 h-9 text-xs"
+          />
+          {filter && (
+            <button
+              type="button"
+              onClick={() => setFilter("")}
+              aria-label="Clear filter"
+              className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+        <label className="flex items-center gap-1.5 text-xs text-muted">
+          <ArrowDownAZ className="h-3.5 w-3.5" />
+          Sort
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as SortKey)}
+            aria-label="Sort holdings"
+            className="input h-9 min-w-[160px] text-xs"
+          >
+            {SORT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        {filterLc && (
+          <span className="text-xs text-muted">
+            {filteredItems.length} {filteredItems.length === 1 ? "match" : "matches"}
+          </span>
+        )}
+      </div>
+      {categories.length === 0 ? (
+        <div className="rounded-xl border border-white/5 bg-white/[0.02] p-6 text-center text-sm text-muted">
+          No holdings match &quot;{filter}&quot;.
+        </div>
+      ) : (
+        <Reorder.Group
+          axis="y"
+          values={categories}
+          onReorder={draggable ? onReorderCategories : () => {}}
+          as="div"
+          className="space-y-6"
+        >
+          {categories.map((cat) => (
+            <CategoryBlock
+              key={cat}
+              cat={cat}
+              items={filteredItems}
+              prices={prices}
+              usdInr={usdInr}
+              display={display}
+              intradayMap={intradayMap}
+              now={now}
+              onReorderCategory={onReorderCategory}
+              draggable={draggable}
+              sortBy={sortBy}
+              sortMeta={sortMeta}
+            />
+          ))}
+          {draggable && (
+            <p className="text-xs text-muted">
+              Tip: drag the handle{" "}
+              <GripVertical className="inline-block h-3 w-3 align-text-bottom" />{" "}
+              on a row to reorder within a category, or drag a category header
+              to move the whole section. Switch sort back to{" "}
+              <em>Custom</em> to re-enable dragging after sorting.
+            </p>
+          )}
+        </Reorder.Group>
+      )}
+    </div>
   );
 }
 
@@ -164,6 +289,9 @@ function CategoryBlock({
   intradayMap,
   now,
   onReorderCategory,
+  draggable,
+  sortBy,
+  sortMeta,
 }: {
   cat: Category;
   items: Investment[];
@@ -173,10 +301,42 @@ function CategoryBlock({
   intradayMap: IntradayMap;
   now: number;
   onReorderCategory: (cat: Category, next: Investment[]) => void;
+  draggable: boolean;
+  sortBy: SortKey;
+  sortMeta: Map<
+    string,
+    { value: number; gainPct: number; todayPct: number; name: string }
+  >;
 }) {
   const controls = useDragControls();
   const meta = CATEGORY_META[cat];
-  const group = items.filter((i) => i.category === cat);
+  const groupRaw = items.filter((i) => i.category === cat);
+  const group = useMemo(() => {
+    if (sortBy === "custom") return groupRaw;
+    const arr = [...groupRaw];
+    arr.sort((a, b) => {
+      const ma = sortMeta.get(a.id);
+      const mb = sortMeta.get(b.id);
+      if (!ma || !mb) return 0;
+      switch (sortBy) {
+        case "value-desc":
+          return mb.value - ma.value;
+        case "gain-desc":
+          return mb.gainPct - ma.gainPct;
+        case "gain-asc":
+          return ma.gainPct - mb.gainPct;
+        case "today-desc":
+          return mb.todayPct - ma.todayPct;
+        case "today-asc":
+          return ma.todayPct - mb.todayPct;
+        case "name-asc":
+          return ma.name.localeCompare(mb.name);
+        default:
+          return 0;
+      }
+    });
+    return arr;
+  }, [groupRaw, sortBy, sortMeta]);
   const groupValue = group.reduce(
     (s, i) => s + valueIn(i, prices, usdInr, display),
     0,
@@ -195,14 +355,16 @@ function CategoryBlock({
     >
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onPointerDown={(e) => controls.start(e)}
-            aria-label={`Drag ${meta.label} section`}
-            className="-ml-1 flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
-          >
-            <GripVertical className="h-4 w-4" />
-          </button>
+          {draggable && (
+            <button
+              type="button"
+              onPointerDown={(e) => controls.start(e)}
+              aria-label={`Drag ${meta.label} section`}
+              className="-ml-1 flex h-7 w-7 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          )}
           <span
             className="h-2.5 w-2.5 rounded-full"
             style={{ background: meta.color }}
@@ -218,7 +380,7 @@ function CategoryBlock({
           )}
         </div>
         <span
-          className="text-sm font-semibold tabular-nums"
+          className="amount text-sm font-semibold tabular-nums"
           title={formatCurrency(groupValue, display)}
         >
           {formatCurrencySmart(groupValue, display)}
@@ -238,7 +400,9 @@ function CategoryBlock({
         <Reorder.Group
           axis="y"
           values={group}
-          onReorder={(next) => onReorderCategory(cat, next)}
+          onReorder={
+            draggable ? (next) => onReorderCategory(cat, next) : () => {}
+          }
           as="ul"
           className="divide-y divide-white/5"
         >
@@ -246,6 +410,7 @@ function CategoryBlock({
             <Row
               key={inv.id}
               inv={inv}
+              draggable={draggable}
               prices={prices}
               intraday={isStock(inv) ? intradayMap[inv.symbol] : undefined}
               now={now}
@@ -262,11 +427,13 @@ function Row({
   prices,
   intraday,
   now,
+  draggable,
 }: {
   inv: Investment;
   prices: PriceMap;
   intraday?: IntradaySeries;
   now: number;
+  draggable: boolean;
 }) {
   const controls = useDragControls();
   const { settings } = useSettings();
@@ -397,14 +564,16 @@ function Row({
       <div className="flex flex-col gap-2 md:hidden">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              onPointerDown={(e) => controls.start(e)}
-              aria-label="Drag to reorder"
-              className="-ml-1 flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
-            >
-              <GripVertical className="h-4 w-4" />
-            </button>
+            {draggable && (
+              <button
+                type="button"
+                onPointerDown={(e) => controls.start(e)}
+                aria-label="Drag to reorder"
+                className="-ml-1 flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+            )}
             <div className="flex min-w-0 flex-col">
               <span className="flex items-center gap-1.5 truncate font-medium">
                 <span className="truncate">{stock ? inv.symbol : inv.label}</span>
@@ -426,7 +595,7 @@ function Row({
           </div>
           <div className="text-right">
             <div
-              className="font-semibold tabular-nums"
+              className="amount font-semibold tabular-nums"
               title={formatCurrency(value, rowCurrency)}
             >
               {formatCurrencySmart(value, rowCurrency)}
@@ -434,7 +603,7 @@ function Row({
             {pl !== null && plPct !== null ? (
               <div
                 className={cn(
-                  "mt-0.5 text-xs font-semibold tabular-nums",
+                  "amount mt-0.5 text-xs font-semibold tabular-nums",
                   pl >= 0 ? "text-emerald-400" : "text-rose-400",
                 )}
                 title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), rowCurrency)}`}
@@ -451,7 +620,7 @@ function Row({
             <span className="text-[10px] uppercase tracking-wider text-muted">
               {stock ? "Qty · Price" : "Type"}
             </span>
-            <span className="truncate text-xs tabular-nums">
+            <span className="amount truncate text-xs tabular-nums">
               {stock && nv.unitPrice !== undefined
                 ? `${formatQuantity(inv.quantity)} · ${formatCurrency(nv.unitPrice, nv.currency)}`
                 : stock
@@ -493,14 +662,18 @@ function Row({
       </div>
 
       {/* Desktop cells */}
-      <button
-        type="button"
-        onPointerDown={(e) => controls.start(e)}
-        aria-label="Drag to reorder"
-        className="-ml-1 hidden h-7 w-7 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing md:flex"
-      >
-        <GripVertical className="h-4 w-4" />
-      </button>
+      {draggable ? (
+        <button
+          type="button"
+          onPointerDown={(e) => controls.start(e)}
+          aria-label="Drag to reorder"
+          className="-ml-1 hidden h-7 w-7 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing md:flex"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      ) : (
+        <span className="hidden md:block" aria-hidden />
+      )}
       <div className="hidden min-w-0 flex-col md:flex">
         <span className="flex items-center gap-1.5 truncate font-medium">
           <span className="truncate">{stock ? inv.symbol : inv.label}</span>
@@ -522,7 +695,7 @@ function Row({
       <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
         {stock ? formatQuantity(inv.quantity) : "—"}
       </span>
-      <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
+      <span className="amount hidden whitespace-nowrap text-right tabular-nums md:inline">
         {stock && nv.unitPrice !== undefined
           ? formatCurrency(nv.unitPrice, nv.currency)
           : stock
@@ -581,7 +754,7 @@ function Row({
         )}
       </div>
       <span
-        className="hidden whitespace-nowrap text-right tabular-nums md:inline"
+        className="amount hidden whitespace-nowrap text-right tabular-nums md:inline"
         title={
           stock
             ? formatCurrency(inv.avgCost, inv.currency)
@@ -597,7 +770,7 @@ function Row({
             : "—"}
       </span>
       <span
-        className="hidden whitespace-nowrap text-right font-semibold tabular-nums md:inline"
+        className="amount hidden whitespace-nowrap text-right font-semibold tabular-nums md:inline"
         title={formatCurrency(value, rowCurrency)}
       >
         {formatCurrencySmart(value, rowCurrency)}
@@ -608,7 +781,7 @@ function Row({
         ) : (
           <span
             className={cn(
-              "inline-flex items-center gap-1 text-xs font-semibold tabular-nums",
+              "amount inline-flex items-center gap-1 text-xs font-semibold tabular-nums",
               pl >= 0 ? "text-emerald-400" : "text-rose-400",
             )}
             title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), rowCurrency)}`}

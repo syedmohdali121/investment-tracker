@@ -121,6 +121,17 @@ export default function SettingsPage() {
         </Section>
 
         <Section
+          title="Hide amounts (privacy mode)"
+          hint="Blur all monetary values on screen so you can share your screen or take screenshots without exposing numbers. Hover an amount to peek. Toggle live from the top bar."
+        >
+          <ToggleRow
+            value={settings.hideAmounts}
+            onChange={(v) => update("hideAmounts", v)}
+            label={settings.hideAmounts ? "On" : "Off"}
+          />
+        </Section>
+
+        <Section
           title="Extended hours in Today's P/L"
           hint="When markets are in pre-market or after-hours, use the extended-session price for Today's P/L. Never affects total value or overall P/L — those always use the regular-session price."
         >

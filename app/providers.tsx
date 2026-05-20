@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useSyncExternalStore,
 } from "react";
@@ -125,6 +126,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
       <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
         <SettingsProvider>
           <CurrencyProvider>
+            <PrivacyModeEffect />
             <CommandPaletteProvider>
               <ShortcutsProvider>{children}</ShortcutsProvider>
             </CommandPaletteProvider>
@@ -134,6 +136,24 @@ export function Providers({ children }: { children: React.ReactNode }) {
       </ThemeProvider>
     </QueryClientProvider>
   );
+}
+
+/**
+ * Syncs the `hideAmounts` setting to `data-hide-amounts` on the document
+ * root. The CSS in globals.css blurs any element tagged with `.amount` while
+ * that attribute is set.
+ */
+function PrivacyModeEffect() {
+  const { settings } = useSettings();
+  useEffect(() => {
+    const root = document.documentElement;
+    if (settings.hideAmounts) {
+      root.dataset.hideAmounts = "true";
+    } else {
+      delete root.dataset.hideAmounts;
+    }
+  }, [settings.hideAmounts]);
+  return null;
 }
 
 // ---------- Shared hooks ----------

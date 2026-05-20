@@ -241,7 +241,7 @@ export default function DashboardPage() {
                 </span>
                 <Wallet className="h-4 w-4 text-indigo-400" />
               </div>
-              <div className="mt-2 text-3xl font-semibold tabular-nums">
+              <div className="amount mt-2 text-3xl font-semibold tabular-nums">
                 <AnimatedNumber
                   value={total}
                   format={(v) => formatCurrency(v, currency)}
@@ -262,7 +262,7 @@ export default function DashboardPage() {
               </div>
               <div
                 className={cn(
-                  "mt-2 text-3xl font-semibold tabular-nums",
+                  "amount mt-2 text-3xl font-semibold tabular-nums",
                   totalPL >= 0 ? "text-emerald-400" : "text-rose-400",
                 )}
               >
@@ -289,7 +289,7 @@ export default function DashboardPage() {
                       style={{ background: CATEGORY_META[a.category].color }}
                     />
                   </div>
-                  <div className="mt-2 text-3xl font-semibold tabular-nums">
+                  <div className="amount mt-2 text-3xl font-semibold tabular-nums">
                     {formatCurrency(a.value, currency)}
                   </div>
                   <div className="mt-1 text-xs text-muted">
@@ -326,7 +326,7 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     <div className="flex items-center gap-2 tabular-nums">
-                      <span className="font-semibold">
+                      <span className="amount font-semibold">
                         {formatCurrency(a.value, currency)}
                       </span>
                       <span className="text-muted">

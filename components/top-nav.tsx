@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  Eye,
+  EyeOff,
   LayoutDashboard,
   ListOrdered,
   PlusCircle,
@@ -16,6 +18,7 @@ import { CurrencyToggle } from "./currency-toggle";
 import { ThemeToggle } from "./theme-toggle";
 import { useCommandPalette } from "./command-palette";
 import { UserPill } from "./user-pill";
+import { useSettings } from "@/app/settings-context";
 
 const tabs = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -27,6 +30,7 @@ const tabs = [
 export function TopNav() {
   const pathname = usePathname();
   const palette = useCommandPalette();
+  const { settings, update } = useSettings();
   if (pathname === "/lock") return null;
   return (
     <header className="sticky top-0 z-40 border-b border-white/5 bg-background/80 backdrop-blur-lg">
@@ -116,6 +120,29 @@ export function TopNav() {
             <Search className="h-4 w-4" />
           </button>
           <CurrencyToggle />
+          <button
+            type="button"
+            onClick={() => update("hideAmounts", !settings.hideAmounts)}
+            aria-label={settings.hideAmounts ? "Show amounts" : "Hide amounts"}
+            aria-pressed={settings.hideAmounts}
+            title={
+              settings.hideAmounts
+                ? "Show amounts (privacy mode is on)"
+                : "Hide amounts (privacy mode)"
+            }
+            className={cn(
+              "flex h-9 w-9 items-center justify-center rounded-lg border transition",
+              settings.hideAmounts
+                ? "border-indigo-400/40 bg-indigo-500/10 text-indigo-200"
+                : "border-white/10 bg-white/[0.03] text-muted hover:text-foreground",
+            )}
+          >
+            {settings.hideAmounts ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </button>
           <ThemeToggle />
           <UserPill />
         </div>

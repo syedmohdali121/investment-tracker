@@ -15,12 +15,16 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {
   useInvestments,
   useTransactions,
 } from "@/app/providers";
+import {
+  useAddTransaction,
+  useUpdateTransaction,
+  useDeleteTransaction,
+} from "@/lib/mutations";
 import {
   isStock,
   type Currency,
@@ -227,7 +231,10 @@ export default function TransactionsPage() {
                         >
                           <Pencil className="h-4 w-4" />
                         </button>
-                        <DeleteButton id={t.id} />
+                        <DeleteButton
+                          id={t.id}
+                          label={inv?.symbol ?? "transaction"}
+                        />
                       </div>
                     </td>
                   </tr>
@@ -254,25 +261,17 @@ export default function TransactionsPage() {
   );
 }
 
-function DeleteButton({ id }: { id: string }) {
-  const qc = useQueryClient();
-  const [busy, setBusy] = useState(false);
-  async function onClick() {
-    if (!confirm("Delete this transaction?")) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/transactions/${id}`, { method: "DELETE" });
-      if (!res.ok) throw new Error("Failed");
-      toast.success("Transaction deleted");
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["transactions"] }),
-        qc.invalidateQueries({ queryKey: ["investments"] }),
-      ]);
-    } catch {
-      toast.error("Failed to delete");
-    } finally {
-      setBusy(false);
-    }
+function DeleteButton({
+  id,
+  label,
+}: {
+  id: string;
+  label?: string;
+}) {
+  const deleteM = useDeleteTransaction();
+  const busy = deleteM.isPending;
+  function onClick() {
+    deleteM.mutate({ id, label });
   }
   return (
     <button
@@ -298,7 +297,8 @@ function TransactionDialog({
   existing: Transaction | null;
   onClose: () => void;
 }) {
-  const qc = useQueryClient();
+  const addM = useAddTransaction();
+  const updateM = useUpdateTransaction();
   const [investmentId, setInvestmentId] = useState<string>(
     existing?.investmentId ?? initialInvestmentId ?? stocks[0]?.id ?? "",
   );
@@ -365,24 +365,12 @@ function TransactionDialog({
         currency,
         ...(notes.trim() ? { notes: notes.trim() } : {}),
       };
-      const url = existing
-        ? `/api/transactions/${existing.id}`
-        : "/api/transactions";
-      const method = existing ? "PATCH" : "POST";
-      const res = await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error ?? "Failed");
+      if (existing) {
+        await updateM.mutateAsync({ id: existing.id, patch: body });
+      } else {
+        await addM.mutateAsync(body);
       }
       toast.success(existing ? "Transaction updated" : "Transaction added");
-      await Promise.all([
-        qc.invalidateQueries({ queryKey: ["transactions"] }),
-        qc.invalidateQueries({ queryKey: ["investments"] }),
-      ]);
       onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed");

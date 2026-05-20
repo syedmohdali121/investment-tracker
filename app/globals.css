@@ -70,6 +70,33 @@ html.light .input {
   background: rgb(255 255 255 / 0.8);
 }
 
+/* Native <option> elements don't inherit translucent backgrounds well —
+   browsers render the popup against the OS theme, which makes our muted
+   foreground text wash out. Force a solid surface + readable text. */
+select.input option {
+  background-color: #0b1020;
+  color: var(--color-foreground);
+}
+html.light select.input option {
+  background-color: #ffffff;
+  color: #111827;
+}
+
 @keyframes shimmer {
   100% { transform: translateX(100%); }
+}
+
+/* Privacy mode: blur monetary amounts when `hideAmounts` is enabled.
+   Toggled via `document.documentElement.dataset.hideAmounts = "true"`
+   in providers.tsx; opt elements in by adding the `.amount` class. */
+:root[data-hide-amounts="true"] .amount {
+  filter: blur(0.45em);
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+  transition: filter 180ms ease;
+}
+
+:root[data-hide-amounts="true"] .amount:hover {
+  filter: blur(0);
 }
