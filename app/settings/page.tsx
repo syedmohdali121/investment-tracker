@@ -141,6 +141,20 @@ export default function SettingsPage() {
             label={settings.extendedHoursPL ? "On" : "Off"}
           />
         </Section>
+
+        <Section
+          title="Holdings density"
+          hint="Comfortable leaves room to breathe; Compact trims row padding so more holdings fit on screen at once."
+        >
+          <SegmentedGroup
+            value={settings.tableDensity}
+            onChange={(v) => update("tableDensity", v)}
+            options={[
+              { value: "comfortable", label: "Comfortable" },
+              { value: "compact", label: "Compact" },
+            ]}
+          />
+        </Section>
       </div>
 
       <p className="mt-8 text-[11px] text-muted">

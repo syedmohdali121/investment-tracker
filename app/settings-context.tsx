@@ -41,6 +41,11 @@ export type Settings = {
    * only the rendered text is visually obscured.
    */
   hideAmounts: boolean;
+  /**
+   * Holdings-table row density. `comfortable` is the original spacing;
+   * `compact` trims vertical padding so more rows fit on screen at once.
+   */
+  tableDensity: "comfortable" | "compact";
 };
 
 const DEFAULTS: Settings = {
@@ -50,6 +55,7 @@ const DEFAULTS: Settings = {
   compactNumbers: false,
   extendedHoursPL: false,
   hideAmounts: false,
+  tableDensity: "comfortable",
 };
 
 const STORAGE_KEY = "portfolio-pulse:settings";

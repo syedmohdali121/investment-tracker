@@ -10,6 +10,8 @@ import {
   ArrowUpRight,
   Filter,
   GripVertical,
+  Rows3,
+  Rows4,
   X,
 } from "lucide-react";
 import {
@@ -100,6 +102,8 @@ export function HoldingsTable({
   const [sortBy, setSortBy] = useState<SortKey>("custom");
   const [filter, setFilter] = useState("");
   const draggable = sortBy === "custom";
+  const { settings, update: updateSetting } = useSettings();
+  const density = settings.tableDensity;
 
   /**
    * Compute a numeric/string sort key per holding once, so the comparator
@@ -231,6 +235,31 @@ export function HoldingsTable({
             ))}
           </select>
         </label>
+        <button
+          type="button"
+          onClick={() =>
+            updateSetting(
+              "tableDensity",
+              settings.tableDensity === "compact" ? "comfortable" : "compact",
+            )
+          }
+          aria-pressed={settings.tableDensity === "compact"}
+          title={
+            settings.tableDensity === "compact"
+              ? "Switch to comfortable density"
+              : "Switch to compact density"
+          }
+          className="flex h-9 items-center gap-1.5 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 text-xs font-medium text-muted transition hover:border-white/20 hover:text-foreground"
+        >
+          {settings.tableDensity === "compact" ? (
+            <Rows4 className="h-3.5 w-3.5" />
+          ) : (
+            <Rows3 className="h-3.5 w-3.5" />
+          )}
+          <span className="hidden sm:inline">
+            {settings.tableDensity === "compact" ? "Compact" : "Comfortable"}
+          </span>
+        </button>
         {filterLc && (
           <span className="text-xs text-muted">
             {filteredItems.length} {filteredItems.length === 1 ? "match" : "matches"}
@@ -551,7 +580,10 @@ function Row({
       value={inv}
       dragListener={false}
       dragControls={controls}
-      className="cursor-default px-3 py-3 text-sm hover:bg-white/[0.03] md:grid md:grid-cols-[24px_minmax(120px,1fr)_56px_80px_104px_80px_minmax(72px,0.9fr)_minmax(88px,1fr)] md:items-center md:gap-x-1.5"
+      className={cn(
+        "cursor-default px-3 text-sm hover:bg-white/[0.03] md:grid md:grid-cols-[24px_minmax(120px,1fr)_56px_80px_104px_80px_minmax(72px,0.9fr)_minmax(88px,1fr)] md:items-center md:gap-x-1.5",
+        settings.tableDensity === "compact" ? "py-1.5" : "py-3",
+      )}
       whileDrag={{
         scale: 1.01,
         boxShadow:
@@ -561,7 +593,12 @@ function Row({
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
     >
       {/* Mobile layout */}
-      <div className="flex flex-col gap-2 md:hidden">
+      <div
+        className={cn(
+          "flex flex-col md:hidden",
+          settings.tableDensity === "compact" ? "gap-1" : "gap-2",
+        )}
+      >
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2">
             {draggable && (
