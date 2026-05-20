@@ -7,7 +7,6 @@ import {
   Briefcase,
   Download,
   PieChart as PieIcon,
-  RefreshCcw,
   Wallet,
 } from "lucide-react";
 import {
@@ -40,6 +39,7 @@ import { AnimatedNumber } from "@/components/animated-number";
 import { StockGrowthPane } from "@/components/stock-growth-pane";
 import { CardSkeleton, PaneSkeleton, RowsSkeleton } from "@/components/skeletons";
 import { DailyDiffBadge } from "@/components/daily-diff-badge";
+import { QuoteFreshness } from "@/components/quote-freshness";
 import { CATEGORY_META, Investment, StockInvestment, isStock } from "@/lib/types";
 import { cn } from "@/lib/cn";
 import { useQueryClient } from "@tanstack/react-query";
@@ -154,8 +154,6 @@ export default function DashboardPage() {
   const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
 
   const loading = investmentsQ.isLoading;
-  const refreshing =
-    pricesQ.isFetching || fxQ.isFetching || investmentsQ.isFetching;
 
   async function refreshAll() {
     try {
@@ -205,16 +203,15 @@ export default function DashboardPage() {
               {formatNumber(usdInr, 3)}
             </span>
           </span>
-          <button
-            type="button"
-            onClick={refreshAll}
-            className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-muted transition hover:text-foreground"
-          >
-            <RefreshCcw
-              className={cn("h-3.5 w-3.5", refreshing && "animate-spin")}
-            />
-            Refresh
-          </button>
+          <QuoteFreshness
+            lastUpdatedAt={Math.max(
+              pricesQ.dataUpdatedAt ?? 0,
+              fxQ.dataUpdatedAt ?? 0,
+            )}
+            isFetching={pricesQ.isFetching || fxQ.isFetching}
+            isError={pricesQ.isError || fxQ.isError}
+            onRefresh={refreshAll}
+          />
           <button
             type="button"
             onClick={downloadCsv}
