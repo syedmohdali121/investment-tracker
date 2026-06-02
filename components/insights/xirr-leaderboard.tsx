@@ -47,37 +47,65 @@ export function XirrLeaderboard({
     const rs: Row[] = [];
     const portfolioFlows: CashFlow[] = [];
 
+    // Combine multiple records of the same stock into a single position so the
+    // leaderboard shows one row per symbol (matching the merged dashboard view
+    // and keeping React keys unique). Each underlying record contributes its
+    // own buy flow at its own created date / avg cost, so the combined XIRR
+    // stays money-weighted across the separate purchases.
+    const bySymbol = new Map<string, StockInvestment[]>();
     for (const s of stocks) {
-      const created = Date.parse(s.createdAt);
-      if (!Number.isFinite(created)) continue;
-      const quote = prices[s.symbol];
-      const price = quote?.price ?? s.avgCost;
-      const ccy: Currency = quote?.currency ?? s.currency;
+      const arr = bySymbol.get(s.symbol);
+      if (arr) arr.push(s);
+      else bySymbol.set(s.symbol, [s]);
+    }
+
+    for (const [symbol, group] of bySymbol) {
+      const quote = prices[symbol];
+      const price = quote?.price ?? group[0].avgCost;
+      const ccy: Currency = quote?.currency ?? group[0].currency;
       const flows: CashFlow[] = [];
-      // Initial buy (outflow, native ccy).
-      flows.push({ t: created, amount: -s.avgCost * s.quantity });
-      // Dividends since createdAt — best-effort approximation using current qty.
-      const dseries = dividends[s.symbol];
+      let totalQty = 0;
+      let totalCost = 0;
+      let earliestCreated = Infinity;
+
+      // Initial buys (one outflow per underlying record, native ccy).
+      for (const s of group) {
+        const created = Date.parse(s.createdAt);
+        if (!Number.isFinite(created)) continue;
+        flows.push({ t: created, amount: -s.avgCost * s.quantity });
+        totalQty += s.quantity;
+        totalCost += s.avgCost * s.quantity;
+        if (created < earliestCreated) earliestCreated = created;
+      }
+      // Skip if no record had a usable purchase date.
+      if (!Number.isFinite(earliestCreated)) continue;
+
+      // Dividends since the earliest purchase — best-effort approximation
+      // using the combined current quantity.
+      const dseries = dividends[symbol];
       if (dseries) {
         for (const ev of dseries.events) {
-          if (ev.t >= created && ev.t <= now) {
-            flows.push({ t: ev.t, amount: ev.amount * s.quantity });
+          if (ev.t >= earliestCreated && ev.t <= now) {
+            flows.push({ t: ev.t, amount: ev.amount * totalQty });
           }
         }
       }
-      // Synthetic sell today.
-      const finalValue = price * s.quantity;
+      // Synthetic sell today (combined quantity).
+      const finalValue = price * totalQty;
       flows.push({ t: now, amount: finalValue });
 
       const irr = xirr(flows);
-      const heldDays = Math.max(0, (now - created) / (24 * 60 * 60 * 1000));
+      const heldDays = Math.max(
+        0,
+        (now - earliestCreated) / (24 * 60 * 60 * 1000),
+      );
       const gainDisplay = convert(
-        finalValue - s.avgCost * s.quantity,
+        finalValue - totalCost,
         ccy,
         display,
         usdInr,
       );
-      rs.push({ symbol: s.symbol, currency: ccy, heldDays, irr, gainDisplay });
+      rs.push({ symbol, currency: ccy, heldDays, irr, gainDisplay });
 
       // Roll into portfolio in display ccy.
       for (const f of flows) {

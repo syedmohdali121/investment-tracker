@@ -96,9 +96,9 @@ export function TaxProjectionCard({
             </tr>
           </thead>
           <tbody>
-            {sortedRows.map((r) => (
+            {sortedRows.map((r, i) => (
               <tr
-                key={r.symbol}
+                key={`${r.symbol}-${i}`}
                 className="border-b border-white/[0.04] last:border-0"
               >
                 <td className="py-2 pr-3 font-medium">{r.symbol}</td>
