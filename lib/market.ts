@@ -115,11 +115,20 @@ export async function searchSymbols(
         search: (
           q: string,
           opts?: { quotesCount?: number; newsCount?: number },
+          moduleOpts?: { validateResult?: boolean },
         ) => Promise<{
           quotes?: Array<Record<string, unknown>>;
         }>;
       }
-    ).search(q, { quotesCount: 25, newsCount: 0 })) as {
+    ).search(
+      q,
+      { quotesCount: 25, newsCount: 0 },
+      // Yahoo periodically tweaks the search payload shape (e.g. `typeDisp`
+      // casing), which trips yahoo-finance2's strict schema and would
+      // otherwise throw and surface as "no results" while typing. We only
+      // read a few well-known fields below, so skip validation here.
+      { validateResult: false },
+    )) as {
       quotes?: Array<Record<string, unknown>>;
     };
     const allowedTypes = new Set(["EQUITY", "ETF", "MUTUALFUND", "INDEX"]);
