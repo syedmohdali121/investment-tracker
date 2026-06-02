@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { Reorder, useDragControls } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -8,6 +8,7 @@ import {
   ArrowDownAZ,
   ArrowDownRight,
   ArrowUpRight,
+  ChevronRight,
   Filter,
   GripVertical,
   Rows3,
@@ -19,6 +20,7 @@ import {
   Category,
   Currency,
   Investment,
+  StockInvestment,
   isStock,
 } from "@/lib/types";
 import {
@@ -63,11 +65,15 @@ const SORT_OPTIONS: Array<{ value: SortKey; label: string }> = [
 
 export function HoldingsTable({
   investments,
+  idGroups,
+  childrenById,
   prices,
   usdInr,
   display,
 }: {
   investments: Investment[];
+  idGroups?: Map<string, string[]>;
+  childrenById?: Map<string, Investment[]>;
   prices: PriceMap;
   usdInr: number;
   display: Currency;
@@ -104,6 +110,18 @@ export function HoldingsTable({
   const draggable = sortBy === "custom";
   const { settings, update: updateSetting } = useSettings();
   const density = settings.tableDensity;
+
+  // Which merged holdings are expanded to show their individual underlying
+  // records. Keyed by the merged row id. Ephemeral local UI state.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const toggleExpanded = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   /**
    * Compute a numeric/string sort key per holding once, so the comparator
@@ -153,17 +171,22 @@ export function HoldingsTable({
   ) as Category[];
 
   async function persistOrder(nextAll: Investment[]) {
+    // `nextAll` is the reordered list of *merged* rows. Expand each merged row
+    // back into its underlying record ids so the reorder endpoint (which
+    // requires the full set of stored ids) accepts the request.
+    const expandedIds = nextAll.flatMap(
+      (i) => idGroups?.get(i.id) ?? [i.id],
+    );
     try {
       const res = await fetch("/api/investments/reorder", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ids: nextAll.map((i) => i.id) }),
+        body: JSON.stringify({ ids: expandedIds }),
       });
       if (!res.ok) throw new Error("Failed to save order");
-      qc.setQueryData<{ investments: Investment[] }>(
-        ["investments"],
-        { investments: nextAll },
-      );
+      // The cache holds raw (unmerged) records; rebuilding it from merged rows
+      // would corrupt it, so just refetch to pick up the new sort order.
+      await qc.invalidateQueries({ queryKey: ["investments"] });
     } catch (err) {
       toast.error(
         err instanceof Error ? err.message : "Failed to save order",
@@ -292,6 +315,9 @@ export function HoldingsTable({
               draggable={draggable}
               sortBy={sortBy}
               sortMeta={sortMeta}
+              childrenById={childrenById}
+              expanded={expanded}
+              onToggleExpanded={toggleExpanded}
             />
           ))}
           {draggable && (
@@ -321,6 +347,9 @@ function CategoryBlock({
   draggable,
   sortBy,
   sortMeta,
+  childrenById,
+  expanded,
+  onToggleExpanded,
 }: {
   cat: Category;
   items: Investment[];
@@ -336,6 +365,9 @@ function CategoryBlock({
     string,
     { value: number; gainPct: number; todayPct: number; name: string }
   >;
+  childrenById?: Map<string, Investment[]>;
+  expanded: Set<string>;
+  onToggleExpanded: (id: string) => void;
 }) {
   const controls = useDragControls();
   const meta = CATEGORY_META[cat];
@@ -435,16 +467,36 @@ function CategoryBlock({
           as="ul"
           className="divide-y divide-white/5"
         >
-          {group.map((inv) => (
-            <Row
-              key={inv.id}
-              inv={inv}
-              draggable={draggable}
-              prices={prices}
-              intraday={isStock(inv) ? intradayMap[inv.symbol] : undefined}
-              now={now}
-            />
-          ))}
+          {group.map((inv) => {
+            const kids = childrenById?.get(inv.id);
+            const isExpandable = !!kids && kids.length > 1;
+            const isExpanded = isExpandable && expanded.has(inv.id);
+            return (
+              <Fragment key={inv.id}>
+                <Row
+                  inv={inv}
+                  draggable={draggable}
+                  prices={prices}
+                  intraday={isStock(inv) ? intradayMap[inv.symbol] : undefined}
+                  now={now}
+                  expandable={isExpandable}
+                  expanded={isExpanded}
+                  onToggleExpanded={
+                    isExpandable ? () => onToggleExpanded(inv.id) : undefined
+                  }
+                  childCount={kids?.length ?? 0}
+                />
+                {isExpanded &&
+                  kids!.map((child) => (
+                    <ChildRow
+                      key={child.id}
+                      inv={child as StockInvestment}
+                      prices={prices}
+                    />
+                  ))}
+              </Fragment>
+            );
+          })}
         </Reorder.Group>
       </div>
     </Reorder.Item>
@@ -457,12 +509,20 @@ function Row({
   intraday,
   now,
   draggable,
+  expandable = false,
+  expanded = false,
+  onToggleExpanded,
+  childCount = 0,
 }: {
   inv: Investment;
   prices: PriceMap;
   intraday?: IntradaySeries;
   now: number;
   draggable: boolean;
+  expandable?: boolean;
+  expanded?: boolean;
+  onToggleExpanded?: () => void;
+  childCount?: number;
 }) {
   const controls = useDragControls();
   const { settings } = useSettings();
@@ -611,9 +671,32 @@ function Row({
                 <GripVertical className="h-4 w-4" />
               </button>
             )}
+            {expandable && (
+              <button
+                type="button"
+                onClick={onToggleExpanded}
+                aria-expanded={expanded}
+                aria-label={
+                  expanded ? "Hide individual entries" : "Show individual entries"
+                }
+                className="-ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground"
+              >
+                <ChevronRight
+                  className={cn(
+                    "h-4 w-4 transition-transform",
+                    expanded && "rotate-90",
+                  )}
+                />
+              </button>
+            )}
             <div className="flex min-w-0 flex-col">
               <span className="flex items-center gap-1.5 truncate font-medium">
                 <span className="truncate">{stock ? inv.symbol : inv.label}</span>
+                {expandable && (
+                  <span className="shrink-0 rounded bg-white/5 px-1 py-0.5 text-[9px] font-semibold tabular-nums text-muted">
+                    ×{childCount}
+                  </span>
+                )}
                 {sessionExtra && (
                   <SessionChip
                     label={sessionExtra.label}
@@ -711,23 +794,48 @@ function Row({
       ) : (
         <span className="hidden md:block" aria-hidden />
       )}
-      <div className="hidden min-w-0 flex-col md:flex">
-        <span className="flex items-center gap-1.5 truncate font-medium">
-          <span className="truncate">{stock ? inv.symbol : inv.label}</span>
-          {sessionExtra && (
-            <SessionChip
-              label={sessionExtra.label}
-              price={sessionExtra.price}
-              pct={sessionExtra.pct}
-              currency={nv.currency}
+      <div className="hidden min-w-0 items-center gap-1.5 md:flex">
+        {expandable && (
+          <button
+            type="button"
+            onClick={onToggleExpanded}
+            aria-expanded={expanded}
+            aria-label={
+              expanded ? "Hide individual entries" : "Show individual entries"
+            }
+            className="-ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground"
+          >
+            <ChevronRight
+              className={cn(
+                "h-4 w-4 transition-transform",
+                expanded && "rotate-90",
+              )}
             />
-          )}
-        </span>
-        <span className="truncate text-xs text-muted">
-          {stock
-            ? `${CATEGORY_META[inv.category].short} · ${nv.currency}`
-            : CATEGORY_META[inv.category].label}
-        </span>
+          </button>
+        )}
+        <div className="flex min-w-0 flex-col">
+          <span className="flex items-center gap-1.5 truncate font-medium">
+            <span className="truncate">{stock ? inv.symbol : inv.label}</span>
+            {expandable && (
+              <span className="shrink-0 rounded bg-white/5 px-1 py-0.5 text-[9px] font-semibold tabular-nums text-muted">
+                ×{childCount}
+              </span>
+            )}
+            {sessionExtra && (
+              <SessionChip
+                label={sessionExtra.label}
+                price={sessionExtra.price}
+                pct={sessionExtra.pct}
+                currency={nv.currency}
+              />
+            )}
+          </span>
+          <span className="truncate text-xs text-muted">
+            {stock
+              ? `${CATEGORY_META[inv.category].short} · ${nv.currency}`
+              : CATEGORY_META[inv.category].label}
+          </span>
+        </div>
       </div>
       <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
         {stock ? formatQuantity(inv.quantity) : "—"}
@@ -834,6 +942,119 @@ function Row({
         )}
       </span>
     </Reorder.Item>
+  );
+}
+
+function ChildRow({
+  inv,
+  prices,
+}: {
+  inv: StockInvestment;
+  prices: PriceMap;
+}) {
+  const { settings } = useSettings();
+  const nv = nativeValue(inv, prices);
+  const rowCurrency: Currency = nv.currency;
+  const value = nv.value;
+  const cost = inv.avgCost * inv.quantity;
+  const pl = value - cost;
+  const plPct = cost > 0 ? (pl / cost) * 100 : null;
+  const purchaseDate = new Date(inv.createdAt).toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+
+  return (
+    <li
+      className={cn(
+        "border-l-2 border-white/10 bg-white/[0.015] px-3 text-sm md:grid md:grid-cols-[24px_minmax(120px,1fr)_56px_80px_104px_80px_minmax(72px,0.9fr)_minmax(88px,1fr)] md:items-center md:gap-x-1.5",
+        settings.tableDensity === "compact" ? "py-1.5" : "py-2.5",
+      )}
+    >
+      {/* Mobile layout */}
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <div className="flex min-w-0 flex-col pl-6">
+          <span className="truncate text-xs font-medium text-foreground/80">
+            {purchaseDate}
+          </span>
+          <span className="amount truncate text-[11px] tabular-nums text-muted">
+            {formatQuantity(inv.quantity)} ·{" "}
+            {formatCurrency(inv.avgCost, inv.currency)}
+          </span>
+        </div>
+        <div className="text-right">
+          <div
+            className="amount text-xs font-semibold tabular-nums"
+            title={formatCurrency(value, rowCurrency)}
+          >
+            {formatCurrencySmart(value, rowCurrency)}
+          </div>
+          {plPct !== null ? (
+            <div
+              className={cn(
+                "amount mt-0.5 text-[11px] font-semibold tabular-nums",
+                pl >= 0 ? "text-emerald-400" : "text-rose-400",
+              )}
+            >
+              {pl >= 0 ? "+" : "−"}
+              {formatCurrencySmart(Math.abs(pl), rowCurrency, 1000)}{" "}
+              <span className="text-muted">({formatPct(plPct)})</span>
+            </div>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Desktop cells */}
+      <span className="hidden md:block" aria-hidden />
+      <span className="hidden min-w-0 truncate pl-5 text-xs text-muted md:block">
+        {purchaseDate}
+      </span>
+      <span className="hidden whitespace-nowrap text-right tabular-nums md:inline">
+        {formatQuantity(inv.quantity)}
+      </span>
+      <span className="amount hidden whitespace-nowrap text-right tabular-nums md:inline">
+        {nv.unitPrice !== undefined
+          ? formatCurrency(nv.unitPrice, nv.currency)
+          : "—"}
+      </span>
+      <span className="hidden text-center text-[10px] text-muted md:inline">
+        —
+      </span>
+      <span
+        className="amount hidden whitespace-nowrap text-right tabular-nums md:inline"
+        title={formatCurrency(inv.avgCost, inv.currency)}
+      >
+        {formatCurrencySmart(inv.avgCost, inv.currency)}
+      </span>
+      <span
+        className="amount hidden whitespace-nowrap text-right font-semibold tabular-nums md:inline"
+        title={formatCurrency(value, rowCurrency)}
+      >
+        {formatCurrencySmart(value, rowCurrency)}
+      </span>
+      <span className="hidden whitespace-nowrap text-right md:inline">
+        {plPct === null ? (
+          <span className="text-xs text-muted">—</span>
+        ) : (
+          <span
+            className={cn(
+              "amount inline-flex items-center gap-1 text-xs font-semibold tabular-nums",
+              pl >= 0 ? "text-emerald-400" : "text-rose-400",
+            )}
+            title={`${pl >= 0 ? "+" : "−"}${formatCurrency(Math.abs(pl), rowCurrency)}`}
+          >
+            {pl >= 0 ? (
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowDownRight className="h-3.5 w-3.5" />
+            )}
+            <span>{formatCurrencySmart(Math.abs(pl), rowCurrency, 1000)}</span>
+            <span className="text-muted">({formatPct(plPct)})</span>
+          </span>
+        )}
+      </span>
+    </li>
   );
 }
 

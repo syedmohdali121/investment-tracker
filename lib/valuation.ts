@@ -1,4 +1,10 @@
-import { Category, Currency, Investment, isStock } from "./types";
+import {
+  Category,
+  Currency,
+  Investment,
+  StockInvestment,
+  isStock,
+} from "./types";
 
 /**
  * Per-symbol price data used by valuation, P/L, and chip rendering.
@@ -157,4 +163,94 @@ export function symbolsOf(investments: Investment[]): string[] {
   return Array.from(
     new Set(investments.filter(isStock).map((i) => i.symbol)),
   );
+}
+
+/**
+ * Collapse multiple investment records for the SAME stock (same category +
+ * symbol + currency) into a single synthetic holding for display. This is a
+ * pure presentation-layer transform — the underlying records are never
+ * mutated or persisted.
+ *
+ * Returns:
+ * - `merged`: the display list, one row per distinct stock (cash/other
+ *   holdings pass through untouched). Group order follows first appearance.
+ * - `idGroups`: merged-row id -> the underlying record ids in original order.
+ *   Used to expand a reordered merged list back to the full id set the
+ *   `/api/investments/reorder` endpoint expects.
+ * - `childrenById`: merged-row id -> the underlying records, but ONLY for
+ *   groups with 2+ records (i.e. rows that should render an expand toggle).
+ *
+ * The synthetic merged record reuses the FIRST underlying record's id so it
+ * stays a stable, real id (handy for React keys and reorder). Quantity is
+ * summed; `avgCost` is the quantity-weighted average; `createdAt` is the
+ * earliest purchase date.
+ */
+export function mergeStockHoldings(investments: Investment[]): {
+  merged: Investment[];
+  idGroups: Map<string, string[]>;
+  childrenById: Map<string, Investment[]>;
+} {
+  const keyOf = (inv: StockInvestment) =>
+    `${inv.category}|${inv.symbol}|${inv.currency}`;
+
+  // Preserve first-appearance order of each group / passthrough item.
+  const order: string[] = [];
+  const groups = new Map<string, StockInvestment[]>();
+  // Sentinel entries for non-stock holdings so they keep their position.
+  const passthrough = new Map<string, Investment>();
+
+  for (const inv of investments) {
+    if (isStock(inv)) {
+      const key = keyOf(inv);
+      const arr = groups.get(key);
+      if (arr) {
+        arr.push(inv);
+      } else {
+        groups.set(key, [inv]);
+        order.push(key);
+      }
+    } else {
+      const key = `__cash__${inv.id}`;
+      passthrough.set(key, inv);
+      order.push(key);
+    }
+  }
+
+  const merged: Investment[] = [];
+  const idGroups = new Map<string, string[]>();
+  const childrenById = new Map<string, Investment[]>();
+
+  for (const key of order) {
+    const cash = passthrough.get(key);
+    if (cash) {
+      merged.push(cash);
+      idGroups.set(cash.id, [cash.id]);
+      continue;
+    }
+    const group = groups.get(key);
+    if (!group) continue;
+    const first = group[0];
+    if (group.length === 1) {
+      merged.push(first);
+      idGroups.set(first.id, [first.id]);
+      continue;
+    }
+    const totalQty = group.reduce((s, g) => s + g.quantity, 0);
+    const weightedCost = group.reduce((s, g) => s + g.avgCost * g.quantity, 0);
+    const earliest = group.reduce(
+      (min, g) => (g.createdAt < min ? g.createdAt : min),
+      first.createdAt,
+    );
+    const mergedRow: StockInvestment = {
+      ...first,
+      quantity: totalQty,
+      avgCost: totalQty > 0 ? weightedCost / totalQty : 0,
+      createdAt: earliest,
+    };
+    merged.push(mergedRow);
+    idGroups.set(first.id, group.map((g) => g.id));
+    childrenById.set(first.id, group);
+  }
+
+  return { merged, idGroups, childrenById };
 }

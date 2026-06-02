@@ -19,6 +19,7 @@ import {
 import { useSettings } from "./settings-context";
 import {
   aggregateByCategory,
+  mergeStockHoldings,
   netWorth,
   quoteToPriceEntry,
   sessionPrice,
@@ -78,6 +79,11 @@ export default function DashboardPage() {
   const profileMap = Object.fromEntries(
     (profilesQ.data?.profiles ?? []).map((p) => [p.symbol, p]),
   );
+
+  // Collapse multiple records of the same stock into a single expandable row
+  // for the holdings table only. Totals/aggregates below intentionally keep
+  // using the raw `investments` list (the merge is value-sum invariant).
+  const mergedHoldings = mergeStockHoldings(investments);
 
   const holdingItems = investments.map((inv) => {
     const value = valueIn(inv, priceMap, usdInr, currency);
@@ -384,7 +390,9 @@ export default function DashboardPage() {
 
             <div className="lg:col-span-2">
               <HoldingsTable
-                investments={investments}
+                investments={mergedHoldings.merged}
+                idGroups={mergedHoldings.idGroups}
+                childrenById={mergedHoldings.childrenById}
                 prices={priceMap}
                 usdInr={usdInr}
                 display={currency}
