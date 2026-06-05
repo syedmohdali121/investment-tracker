@@ -7,6 +7,7 @@ import {
   Briefcase,
   Download,
   PieChart as PieIcon,
+  TrendingUp,
   Wallet,
 } from "lucide-react";
 import {
@@ -19,6 +20,7 @@ import {
 import { useSettings } from "./settings-context";
 import {
   aggregateByCategory,
+  convert,
   mergeStockHoldings,
   netWorth,
   quoteToPriceEntry,
@@ -159,6 +161,22 @@ export default function DashboardPage() {
   const totalPL = total - totalCost;
   const totalPLPct = totalCost > 0 ? (totalPL / totalCost) * 100 : 0;
 
+  // Today's (session) P/L aggregated across all holdings, in the display
+  // currency. `todayBase` is the portfolio value at the previous close for the
+  // holdings that have intraday data, used for the session %.
+  const todayPL = contributionRows.reduce((s, r) => s + (r.todayPL ?? 0), 0);
+  const todayBase = investments.reduce((s, inv) => {
+    if (isStock(inv)) {
+      const q = priceMap[inv.symbol];
+      if (q && typeof q.previousClose === "number" && q.previousClose > 0) {
+        return s + convert(q.previousClose * inv.quantity, q.currency, currency, usdInr);
+      }
+    }
+    return s;
+  }, 0);
+  const todayPLPct = todayBase > 0 ? (todayPL / todayBase) * 100 : 0;
+  const hasToday = todayBase > 0;
+
   const loading = investmentsQ.isLoading;
 
   async function refreshAll() {
@@ -290,9 +308,33 @@ export default function DashboardPage() {
               </div>
             </Card>
 
+            {hasToday && (
+              <Card delay={0.075}>
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wider text-muted">
+                    Today&apos;s P / L
+                  </span>
+                  <TrendingUp className="h-4 w-4 text-sky-400" />
+                </div>
+                <div
+                  className={cn(
+                    "amount mt-2 text-3xl font-semibold tabular-nums",
+                    todayPL >= 0 ? "text-emerald-400" : "text-rose-400",
+                  )}
+                >
+                  {todayPL >= 0 ? "+" : "−"}
+                  {formatCurrency(Math.abs(todayPL), currency)}
+                </div>
+                <div className="mt-1 text-xs text-muted tabular-nums">
+                  {todayPLPct >= 0 ? "+" : ""}
+                  {todayPLPct.toFixed(2)}% this session
+                </div>
+              </Card>
+            )}
+
             {agg
               .sort((a, b) => b.value - a.value)
-              .slice(0, 2)
+              .slice(0, hasToday ? 1 : 2)
               .map((a, i) => (
                 <Card key={a.category} delay={0.1 + i * 0.05}>
                   <div className="flex items-center justify-between">
