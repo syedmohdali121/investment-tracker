@@ -2,13 +2,12 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Eye, Loader2, Plus, Search, Trash2, X } from "lucide-react";
+import { Eye, Loader2, Plus, Search, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { useIntraday, usePrices, useWatchlist } from "../providers";
+import { usePrices, useWatchlist } from "../providers";
 import { Card } from "@/components/card";
-import { Sparkline } from "@/components/sparkline";
-import { formatCurrencySmart } from "@/lib/format";
+import { WatchlistCard } from "@/components/watchlist-card";
 import { cn } from "@/lib/cn";
 
 type SearchHit = {
@@ -28,7 +27,6 @@ export default function WatchlistPage() {
   const symbols = useMemo(() => items.map((i) => i.symbol), [items]);
 
   const pricesQ = usePrices(symbols);
-  const intradayQ = useIntraday(symbols);
 
   const priceBySymbol = useMemo(() => {
     const m = new Map<
@@ -52,13 +50,6 @@ export default function WatchlistPage() {
     }
     return m;
   }, [pricesQ.data]);
-
-  const intradayBySymbol = useMemo(() => {
-    const m = new Map<string, (typeof series)[number]>();
-    const series = intradayQ.data?.series ?? [];
-    for (const s of series) m.set(s.symbol, s);
-    return m;
-  }, [intradayQ.data]);
 
   // ---- Search + add ----
   const [query, setQuery] = useState("");
@@ -140,17 +131,16 @@ export default function WatchlistPage() {
     }
   }
 
-  const today = new Date().toISOString().slice(0, 10);
-
   return (
-    <div className="mx-auto max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="mb-6">
         <h1 className="flex items-center gap-2 text-2xl font-semibold tracking-tight">
           <Eye className="h-5 w-5 text-indigo-400" />
           Watchlist
         </h1>
         <p className="text-sm text-muted">
-          Track tickers you don&apos;t own yet. Prices update live.
+          Track tickers you don&apos;t own yet. Prices update live — hover a
+          chart to inspect any point.
         </p>
       </div>
 
@@ -244,7 +234,7 @@ export default function WatchlistPage() {
         </AnimatePresence>
       </Card>
 
-      {/* List */}
+      {/* Cards */}
       <div className="mt-6">
         {watchlistQ.isLoading ? (
           <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-8 text-center text-sm text-muted">
@@ -259,126 +249,18 @@ export default function WatchlistPage() {
             </p>
           </div>
         ) : (
-          <div className="overflow-hidden rounded-2xl border border-white/5 bg-white/[0.02]">
-            {/* Header */}
-            <div className="hidden grid-cols-[minmax(120px,1fr)_104px_96px_88px_40px] items-center gap-2 border-b border-white/5 px-4 py-2 text-[11px] font-medium uppercase tracking-wider text-muted sm:grid">
-              <span>Symbol</span>
-              <span className="text-center">Today</span>
-              <span className="text-right">Price</span>
-              <span className="text-right">Change</span>
-              <span />
-            </div>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <AnimatePresence initial={false}>
-              {items.map((item) => {
-                const q = priceBySymbol.get(item.symbol);
-                const intraday = intradayBySymbol.get(item.symbol);
-                const stale = intraday?.sessionDate
-                  ? intraday.sessionDate !== today
-                  : false;
-                let changePct: number | null = null;
-                if (
-                  q &&
-                  typeof q.previousClose === "number" &&
-                  q.previousClose > 0
-                ) {
-                  changePct =
-                    ((q.price - q.previousClose) / q.previousClose) * 100;
-                } else if (typeof q?.changePercent === "number") {
-                  changePct = q.changePercent;
-                }
-                return (
-                  <motion.div
-                    key={item.id}
-                    layout
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="grid grid-cols-[minmax(0,1fr)_40px] items-center gap-2 border-b border-white/5 px-4 py-3 last:border-b-0 transition hover:bg-white/[0.03] sm:grid-cols-[minmax(120px,1fr)_104px_96px_88px_40px]"
-                  >
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{item.symbol}</div>
-                      <div className="truncate text-xs text-muted">
-                        {item.name ?? q?.name ?? "—"}
-                      </div>
-                      {/* Mobile-only price + change */}
-                      <div className="mt-1 flex items-center gap-2 tabular-nums sm:hidden">
-                        {q ? (
-                          <span className="amount text-sm font-medium">
-                            {formatCurrencySmart(q.price, q.currency)}
-                          </span>
-                        ) : null}
-                        {changePct !== null ? (
-                          <span
-                            className={cn(
-                              "text-xs font-semibold",
-                              changePct >= 0
-                                ? "text-emerald-400"
-                                : "text-rose-400",
-                              stale && "opacity-70",
-                            )}
-                          >
-                            {changePct >= 0 ? "+" : ""}
-                            {changePct.toFixed(2)}%{stale ? " · prev" : ""}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="hidden items-center justify-center sm:flex">
-                      {intraday && intraday.points.length > 1 ? (
-                        <Sparkline
-                          points={intraday.points}
-                          prevClose={intraday.prevClose ?? q?.previousClose ?? null}
-                          prevCloseCurrency={q?.currency}
-                          stale={stale}
-                          sessionStart={stale ? null : intraday.sessionStart}
-                          sessionEnd={stale ? null : intraday.sessionEnd}
-                        />
-                      ) : (
-                        <span className="text-xs text-muted">—</span>
-                      )}
-                    </div>
-
-                    <div className="hidden text-right tabular-nums sm:block">
-                      {q ? (
-                        <span className="amount text-sm font-medium">
-                          {formatCurrencySmart(q.price, q.currency)}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted">—</span>
-                      )}
-                    </div>
-
-                    <div className="hidden justify-end sm:flex">
-                      {changePct !== null ? (
-                        <span
-                          className={cn(
-                            "text-xs font-semibold tabular-nums",
-                            changePct >= 0
-                              ? "text-emerald-400"
-                              : "text-rose-400",
-                            stale && "opacity-70",
-                          )}
-                        >
-                          {changePct >= 0 ? "+" : ""}
-                          {changePct.toFixed(2)}%{stale ? " · prev" : ""}
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted">—</span>
-                      )}
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => remove(item.symbol)}
-                      aria-label={`Remove ${item.symbol}`}
-                      className="flex h-8 w-8 items-center justify-center justify-self-end rounded-md text-muted transition hover:bg-rose-500/10 hover:text-rose-400"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  </motion.div>
-                );
-              })}
+              {items.map((item, i) => (
+                <WatchlistCard
+                  key={item.id}
+                  symbol={item.symbol}
+                  name={item.name}
+                  quote={priceBySymbol.get(item.symbol)}
+                  delay={Math.min(i * 0.04, 0.2)}
+                  onRemove={() => remove(item.symbol)}
+                />
+              ))}
             </AnimatePresence>
           </div>
         )}

@@ -297,7 +297,7 @@ export async function getFxUsdInr(): Promise<number> {
   return 83.0;
 }
 
-export type HistoryRange = "1d" | "5d" | "1m" | "1y" | "3y" | "5y";
+export type HistoryRange = "1d" | "5d" | "1m" | "3m" | "6m" | "1y" | "3y" | "5y";
 
 export type HistoryPoint = { t: number; close: number };
 
@@ -336,6 +336,16 @@ function rangeToParams(range: HistoryRange): {
   if (range === "1m") {
     const start = new Date(now);
     start.setMonth(start.getMonth() - 1);
+    return { period1: start, interval: "1d" };
+  }
+  if (range === "3m") {
+    const start = new Date(now);
+    start.setMonth(start.getMonth() - 3);
+    return { period1: start, interval: "1d" };
+  }
+  if (range === "6m") {
+    const start = new Date(now);
+    start.setMonth(start.getMonth() - 6);
     return { period1: start, interval: "1d" };
   }
   const years = range === "1y" ? 1 : range === "3y" ? 3 : 5;
