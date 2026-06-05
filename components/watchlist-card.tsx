@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, useDragControls, type PanInfo } from "framer-motion";
 import {
   Area,
   AreaChart,
@@ -11,7 +11,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Trash2 } from "lucide-react";
+import { GripVertical, Trash2 } from "lucide-react";
 import { HistoryRange, useHistory } from "@/app/providers";
 import { formatCurrency, formatCurrencySmart, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/cn";
@@ -35,21 +35,41 @@ type Quote = {
   name?: string;
 };
 
+export type WatchlistCardItem = {
+  id: string;
+  symbol: string;
+  name: string | null;
+};
+
 export function WatchlistCard({
-  symbol,
-  name,
+  item,
   quote,
   accent = "#6366f1",
   delay = 0,
+  draggable = false,
+  dragging = false,
+  isDropTarget = false,
+  registerNode,
+  onDragStart,
+  onDragMove,
+  onDragEnd,
   onRemove,
 }: {
-  symbol: string;
-  name: string | null;
+  item: WatchlistCardItem;
   quote?: Quote;
   accent?: string;
   delay?: number;
+  draggable?: boolean;
+  dragging?: boolean;
+  isDropTarget?: boolean;
+  registerNode?: (id: string, node: HTMLElement | null) => void;
+  onDragStart?: (id: string) => void;
+  onDragMove?: (id: string, point: { x: number; y: number }) => void;
+  onDragEnd?: (id: string) => void;
   onRemove: () => void;
 }) {
+  const { symbol, name } = item;
+  const controls = useDragControls();
   const [range, setRange] = useState<HistoryRange>("1d");
   const historyQ = useHistory([symbol], range);
 
@@ -98,12 +118,39 @@ export function WatchlistCard({
 
   return (
     <motion.div
-      layout
+      ref={(node) => registerNode?.(item.id, node)}
+      layout={dragging ? false : "position"}
+      drag={draggable}
+      dragListener={false}
+      dragControls={controls}
+      dragSnapToOrigin
+      dragElastic={0}
+      dragMomentum={false}
+      onDragStart={() => onDragStart?.(item.id)}
+      onDrag={(_, info: PanInfo) =>
+        onDragMove?.(item.id, { x: info.point.x, y: info.point.y })
+      }
+      onDragEnd={() => onDragEnd?.(item.id)}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={{ duration: 0.4, delay, ease: [0.22, 1, 0.36, 1] }}
-      className="group relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-white/[0.04] to-white/[0.01] shadow-xl shadow-black/20 backdrop-blur transition hover:border-white/10"
+      transition={{
+        opacity: { duration: 0.4, delay, ease: [0.22, 1, 0.36, 1] },
+        layout: { type: "spring", stiffness: 600, damping: 45 },
+      }}
+      whileDrag={{
+        scale: 1.03,
+        cursor: "grabbing",
+        boxShadow:
+          "0 24px 50px -12px rgba(99, 102, 241, 0.5), 0 0 0 1px rgba(255,255,255,0.1)",
+      }}
+      style={{ zIndex: dragging ? 50 : 1, position: "relative" }}
+      className={cn(
+        "group relative overflow-hidden rounded-2xl border bg-gradient-to-br from-white/[0.04] to-white/[0.01] shadow-xl shadow-black/20 backdrop-blur transition-colors",
+        isDropTarget
+          ? "border-indigo-400/60 ring-2 ring-indigo-400/40"
+          : "border-white/5 hover:border-white/10",
+        dragging && "select-none",
+      )}
     >
       <div
         className="pointer-events-none absolute inset-0 opacity-60"
@@ -114,28 +161,40 @@ export function WatchlistCard({
       <div className="relative">
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-5 pt-5">
-          <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h3 className="truncate text-lg font-semibold tracking-tight">
-                {symbol}
-              </h3>
-              {todayPct !== null && (
-                <span
-                  className={cn(
-                    "rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
-                    todayPct >= 0
-                      ? "bg-emerald-500/10 text-emerald-400"
-                      : "bg-rose-500/10 text-rose-400",
-                  )}
-                >
-                  {todayPct >= 0 ? "+" : ""}
-                  {todayPct.toFixed(2)}% today
-                </span>
-              )}
+          <div className="flex min-w-0 items-start gap-2">
+            {draggable && (
+              <button
+                type="button"
+                onPointerDown={(e) => controls.start(e)}
+                aria-label="Drag to reorder"
+                className="-ml-1 mt-0.5 flex h-7 w-7 shrink-0 cursor-grab items-center justify-center rounded-md text-muted transition hover:bg-white/5 hover:text-foreground active:cursor-grabbing"
+              >
+                <GripVertical className="h-4 w-4" />
+              </button>
+            )}
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <h3 className="truncate text-lg font-semibold tracking-tight">
+                  {symbol}
+                </h3>
+                {todayPct !== null && (
+                  <span
+                    className={cn(
+                      "rounded-md px-1.5 py-0.5 text-[11px] font-semibold tabular-nums",
+                      todayPct >= 0
+                        ? "bg-emerald-500/10 text-emerald-400"
+                        : "bg-rose-500/10 text-rose-400",
+                    )}
+                  >
+                    {todayPct >= 0 ? "+" : ""}
+                    {todayPct.toFixed(2)}% today
+                  </span>
+                )}
+              </div>
+              <p className="truncate text-xs text-muted">
+                {name ?? quote?.name ?? "—"}
+              </p>
             </div>
-            <p className="truncate text-xs text-muted">
-              {name ?? quote?.name ?? "—"}
-            </p>
           </div>
           <div className="flex items-center gap-2">
             <div className="text-right">

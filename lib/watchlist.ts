@@ -78,3 +78,24 @@ export async function removeFromWatchlist(symbol: string): Promise<boolean> {
     .run(uid, sym);
   return res.changes > 0;
 }
+
+/** Persist a new card order. `ids` must be exactly the user's current set. */
+export async function reorderWatchlist(ids: string[]): Promise<boolean> {
+  const uid = await requireCurrentUserId();
+  const db = getDb();
+  const existing = db
+    .prepare("SELECT id FROM watchlist WHERE user_id = ?")
+    .all(uid) as Array<{ id: string }>;
+  if (existing.length !== ids.length) return false;
+  const have = new Set(existing.map((r) => r.id));
+  if (ids.some((id) => !have.has(id))) return false;
+
+  const update = db.prepare(
+    "UPDATE watchlist SET sort_index = ? WHERE id = ? AND user_id = ?",
+  );
+  const tx = db.transaction(() => {
+    ids.forEach((id, idx) => update.run(idx, id, uid));
+  });
+  tx();
+  return true;
+}

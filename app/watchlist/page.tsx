@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Eye, Loader2, Plus, Search, X } from "lucide-react";
+import { ArrowDownAZ, Eye, GripVertical, Loader2, Plus, Search, X } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { usePrices, useWatchlist } from "../providers";
+import { usePrices, useWatchlist, type WatchlistItem } from "../providers";
 import { Card } from "@/components/card";
 import { WatchlistCard } from "@/components/watchlist-card";
 import { cn } from "@/lib/cn";
@@ -17,14 +17,35 @@ type SearchHit = {
   quoteType: string;
 };
 
+type SortMode = "custom" | "az";
+
 export default function WatchlistPage() {
   const qc = useQueryClient();
   const watchlistQ = useWatchlist();
-  const items = useMemo(
+  const serverItems = useMemo(
     () => watchlistQ.data?.items ?? [],
     [watchlistQ.data],
   );
-  const symbols = useMemo(() => items.map((i) => i.symbol), [items]);
+
+  // Local copy so drag reordering feels instant; re-synced from the server
+  // whenever the query data changes (add/remove/refetch).
+  const [order, setOrder] = useState<WatchlistItem[]>(serverItems);
+  const [prevServer, setPrevServer] = useState(serverItems);
+  if (serverItems !== prevServer) {
+    setPrevServer(serverItems);
+    setOrder(serverItems);
+  }
+
+  const [sortMode, setSortMode] = useState<SortMode>("custom");
+
+  const items = useMemo(() => {
+    if (sortMode === "az") {
+      return [...order].sort((a, b) => a.symbol.localeCompare(b.symbol));
+    }
+    return order;
+  }, [order, sortMode]);
+
+  const symbols = useMemo(() => order.map((i) => i.symbol), [order]);
 
   const pricesQ = usePrices(symbols);
 
@@ -50,6 +71,89 @@ export default function WatchlistPage() {
     }
     return m;
   }, [pricesQ.data]);
+
+  // ---- Drag-and-drop (free 2D) ----
+  // Plain pointer-based reordering so a grabbed card follows the cursor on
+  // both axes. To avoid jitter we DON'T mutate the array mid-drag (that would
+  // change the dragged card's own layout slot and fight the drag transform).
+  // Instead we only track which card the pointer is over and reorder once on
+  // drop; the idle cards then reflow smoothly via `layout`.
+  const nodeRefs = useRef(new Map<string, HTMLElement>());
+  const orderRef = useRef<WatchlistItem[]>(order);
+  orderRef.current = order;
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
+  const dropTargetRef = useRef<string | null>(null);
+
+  function registerNode(id: string, node: HTMLElement | null) {
+    if (node) nodeRefs.current.set(id, node);
+    else nodeRefs.current.delete(id);
+  }
+
+  function handleDragStart(id: string) {
+    setSortMode("custom");
+    setDraggingId(id);
+  }
+
+  function handleDragMove(id: string, point: { x: number; y: number }) {
+    const current = orderRef.current;
+    // Find the card whose box the pointer is currently over (excluding the
+    // dragged card, whose rect follows the cursor).
+    let overId: string | null = null;
+    for (const it of current) {
+      if (it.id === id) continue;
+      const node = nodeRefs.current.get(it.id);
+      if (!node) continue;
+      const r = node.getBoundingClientRect();
+      if (
+        point.x >= r.left &&
+        point.x <= r.right &&
+        point.y >= r.top &&
+        point.y <= r.bottom
+      ) {
+        overId = it.id;
+        break;
+      }
+    }
+    if (overId !== dropTargetRef.current) {
+      dropTargetRef.current = overId;
+      setDropTargetId(overId);
+    }
+  }
+
+  function handleDragEnd(id: string) {
+    const target = dropTargetRef.current;
+    dropTargetRef.current = null;
+    setDropTargetId(null);
+    setDraggingId(null);
+    if (!target || target === id) return;
+    const current = orderRef.current;
+    const fromIndex = current.findIndex((i) => i.id === id);
+    const toIndex = current.findIndex((i) => i.id === target);
+    if (fromIndex === -1 || toIndex === -1) return;
+    // Swap the two cards' positions (not insert/shift) so dropping A onto B
+    // exchanges them and leaves every other card untouched.
+    const next = current.slice();
+    [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+    orderRef.current = next;
+    setOrder(next);
+    void persistOrder(next);
+  }
+
+  async function persistOrder(next: WatchlistItem[]) {
+    try {
+      const res = await fetch("/api/watchlist/reorder", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: next.map((i) => i.id) }),
+      });
+      if (!res.ok) throw new Error("reorder failed");
+      qc.setQueryData<{ items: WatchlistItem[] }>(["watchlist"], { items: next });
+    } catch {
+      toast.error("Could not save order");
+      await qc.invalidateQueries({ queryKey: ["watchlist"] });
+    }
+  }
 
   // ---- Search + add ----
   const [query, setQuery] = useState("");
@@ -234,8 +338,52 @@ export default function WatchlistPage() {
         </AnimatePresence>
       </Card>
 
+      {/* Sort controls */}
+      {items.length > 0 && (
+        <div className="mt-6 flex items-center justify-between gap-3">
+          <p className="text-xs text-muted">
+            {sortMode === "custom" ? (
+              <span className="inline-flex items-center gap-1">
+                <GripVertical className="h-3.5 w-3.5" />
+                Drag the handle to reorder
+              </span>
+            ) : (
+              "Sorted A → Z"
+            )}
+          </p>
+          <div className="flex items-center gap-0.5 rounded-lg border border-white/10 bg-white/5 p-0.5 text-xs">
+            <button
+              type="button"
+              onClick={() => setSortMode("custom")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition",
+                sortMode === "custom"
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted hover:text-foreground",
+              )}
+            >
+              <GripVertical className="h-3.5 w-3.5" />
+              Custom
+            </button>
+            <button
+              type="button"
+              onClick={() => setSortMode("az")}
+              className={cn(
+                "flex items-center gap-1.5 rounded-md px-2.5 py-1 font-medium transition",
+                sortMode === "az"
+                  ? "bg-white/10 text-foreground"
+                  : "text-muted hover:text-foreground",
+              )}
+            >
+              <ArrowDownAZ className="h-3.5 w-3.5" />
+              A–Z
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Cards */}
-      <div className="mt-6">
+      <div className="mt-4">
         {watchlistQ.isLoading ? (
           <div className="rounded-2xl border border-white/5 bg-white/[0.02] p-8 text-center text-sm text-muted">
             Loading watchlist…
@@ -254,10 +402,16 @@ export default function WatchlistPage() {
               {items.map((item, i) => (
                 <WatchlistCard
                   key={item.id}
-                  symbol={item.symbol}
-                  name={item.name}
+                  item={item}
                   quote={priceBySymbol.get(item.symbol)}
                   delay={Math.min(i * 0.04, 0.2)}
+                  draggable={sortMode === "custom"}
+                  dragging={draggingId === item.id}
+                  isDropTarget={dropTargetId === item.id}
+                  registerNode={registerNode}
+                  onDragStart={handleDragStart}
+                  onDragMove={handleDragMove}
+                  onDragEnd={handleDragEnd}
                   onRemove={() => remove(item.symbol)}
                 />
               ))}
