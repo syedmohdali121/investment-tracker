@@ -150,8 +150,43 @@ export default function DashboardPage() {
       const v = valueIn(inv, priceMap, usdInr, currency);
       if (c !== null) totalPL = v - c;
     }
-    return { key: inv.id, label, todayPL, totalPL };
+    return { key: inv.id, label, category: inv.category, todayPL, totalPL };
   });
+
+  // Collapse multiple records of the same holding (same category + label, e.g.
+  // MSFT bought across two accounts) into a single row so "Top movers" shows
+  // one aggregated entry instead of duplicates. P/L values sum; a row stays
+  // `null` only when every contributor was null.
+  const aggregatedContributionRows = (() => {
+    const order: string[] = [];
+    const byKey = new Map<
+      string,
+      { key: string; label: string; todayPL: number | null; totalPL: number | null }
+    >();
+    for (const r of contributionRows) {
+      const groupKey = `${r.category}|${r.label}`;
+      const existing = byKey.get(groupKey);
+      if (!existing) {
+        byKey.set(groupKey, {
+          key: groupKey,
+          label: r.label,
+          todayPL: r.todayPL,
+          totalPL: r.totalPL,
+        });
+        order.push(groupKey);
+      } else {
+        existing.todayPL =
+          r.todayPL === null
+            ? existing.todayPL
+            : (existing.todayPL ?? 0) + r.todayPL;
+        existing.totalPL =
+          r.totalPL === null
+            ? existing.totalPL
+            : (existing.totalPL ?? 0) + r.totalPL;
+      }
+    }
+    return order.map((k) => byKey.get(k)!);
+  })();
 
   const totalCost = investments.reduce((s, inv) => {
     const c = costIn(inv, usdInr, currency);
@@ -409,7 +444,7 @@ export default function DashboardPage() {
                     currency={currency}
                   />
                   <ContributionList
-                    rows={contributionRows}
+                    rows={aggregatedContributionRows}
                     currency={currency}
                   />
                   <ConcentrationMeter
