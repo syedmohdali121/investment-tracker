@@ -56,7 +56,7 @@ export function TopNav() {
                 key={tab.href}
                 href={tab.href}
                 className={cn(
-                  "relative flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  "relative flex items-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   active
                     ? "text-foreground"
                     : "text-muted hover:text-foreground",
@@ -107,7 +107,6 @@ export function TopNav() {
             className="hidden items-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-2.5 py-1.5 text-xs text-muted transition hover:text-foreground sm:inline-flex"
           >
             <Search className="h-3.5 w-3.5" />
-            <span>Search or run…</span>
             <kbd className="rounded border border-white/10 bg-white/5 px-1 py-0.5 text-[10px]">
               ⌘K
             </kbd>
