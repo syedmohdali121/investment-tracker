@@ -23,6 +23,7 @@ import { useSettings } from "@/app/settings-context";
 const tabs = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/insights", label: "Insights", icon: Sparkles },
+  { href: "/watchlist", label: "Watchlist", icon: Eye },
   { href: "/transactions", label: "Transactions", icon: ListOrdered },
   { href: "/add", label: "Add Investment", icon: PlusCircle },
 ];

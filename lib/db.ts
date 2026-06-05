@@ -109,6 +109,22 @@ const MIGRATIONS: Array<{ name: string; sql: string }> = [
         ON transactions(user_id, date);
     `,
   },
+  {
+    name: "002_watchlist",
+    sql: `
+      CREATE TABLE watchlist (
+        id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        symbol TEXT NOT NULL,
+        name TEXT,
+        created_at TEXT NOT NULL,
+        sort_index INTEGER NOT NULL DEFAULT 0,
+        UNIQUE(user_id, symbol)
+      );
+      CREATE INDEX idx_watchlist_user_sort
+        ON watchlist(user_id, sort_index);
+    `,
+  },
 ];
 
 function applyMigrations(db: DatabaseT): void {

@@ -322,6 +322,9 @@ export function StockGrowthPane({
             <span className="hidden rounded-md bg-white/5 px-2 py-1 text-[11px] font-medium text-muted sm:block">
               {stocks.length} holding{stocks.length === 1 ? "" : "s"}
             </span>
+            <span className="hidden text-[11px] font-medium text-muted sm:block">
+              View chart
+            </span>
             <motion.span
               animate={{ rotate: open ? 180 : 0 }}
               transition={{ duration: 0.2 }}

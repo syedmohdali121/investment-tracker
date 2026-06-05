@@ -766,6 +766,11 @@ function Row({
               />
               {sessionDeltaPct !== null ? (
                 <span
+                  title={
+                    sessionStale && intraday?.sessionDate
+                      ? `Market closed · last session ${intraday.sessionDate}`
+                      : "Today"
+                  }
                   className={cn(
                     "text-[10px] font-semibold leading-tight tabular-nums",
                     sessionDeltaPct >= 0 ? "text-emerald-400" : "text-rose-400",
@@ -774,6 +779,7 @@ function Row({
                 >
                   {sessionDeltaPct >= 0 ? "+" : ""}
                   {sessionDeltaPct.toFixed(2)}%
+                  {sessionStale ? " · prev close" : ""}
                 </span>
               ) : null}
             </div>
@@ -868,7 +874,7 @@ function Row({
               <span
                 title={
                   sessionStale && intraday?.sessionDate
-                    ? `Last session: ${intraday.sessionDate}`
+                    ? `Market closed · last session ${intraday.sessionDate}`
                     : "Today"
                 }
                 className={cn(
@@ -888,7 +894,7 @@ function Row({
                 ) : null}
                 {sessionDeltaPct >= 0 ? "+" : ""}
                 {sessionDeltaPct.toFixed(2)}%
-                {sessionStale ? " · prev" : ""}
+                {sessionStale ? " · prev close" : ""}
               </span>
             ) : (
               <span className="text-[10px] text-muted">—</span>

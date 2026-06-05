@@ -15,6 +15,7 @@ const SHORTCUTS: Array<{ keys: string[]; label: string }> = [
   { keys: ["Ctrl", "K"], label: "Open command palette (Win/Linux)" },
   { keys: ["G", "D"], label: "Go to Dashboard" },
   { keys: ["G", "I"], label: "Go to Insights" },
+  { keys: ["G", "W"], label: "Go to Watchlist" },
   { keys: ["G", "A"], label: "Go to Add Investment" },
   { keys: ["G", "S"], label: "Go to Settings" },
   { keys: ["R"], label: "Refresh prices" },
@@ -106,6 +107,10 @@ export function ShortcutsProvider({
         }
         if (key === "i") {
           router.push("/insights");
+          return;
+        }
+        if (key === "w") {
+          router.push("/watchlist");
           return;
         }
         if (key === "a") {

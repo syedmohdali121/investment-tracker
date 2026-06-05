@@ -169,6 +169,24 @@ export function useInvestments() {
   });
 }
 
+export type WatchlistItem = {
+  id: string;
+  symbol: string;
+  name: string | null;
+  createdAt: string;
+};
+
+export function useWatchlist() {
+  return useQuery<{ items: WatchlistItem[] }>({
+    queryKey: ["watchlist"],
+    queryFn: async () => {
+      const res = await fetch("/api/watchlist");
+      if (!res.ok) throw new Error("Failed to load watchlist");
+      return res.json();
+    },
+  });
+}
+
 export function useTransactions(investmentId?: string) {
   return useQuery<{ transactions: Transaction[] }>({
     queryKey: ["transactions", investmentId ?? "all"],

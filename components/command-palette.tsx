@@ -17,6 +17,7 @@ import {
   ArrowRight,
   Command as CommandIcon,
   Download,
+  Eye,
   LayoutDashboard,
   PlusCircle,
   RefreshCcw,
@@ -154,6 +155,15 @@ function CommandPalette() {
         hint: "G then I",
         keywords: "analytics drawdown correlation cagr",
         run: () => go("/insights"),
+      },
+      {
+        id: "nav.watchlist",
+        label: "Go to Watchlist",
+        section: "Navigate",
+        icon: Eye,
+        hint: "G then W",
+        keywords: "watch track tickers symbols quotes",
+        run: () => go("/watchlist"),
       },
       {
         id: "nav.add",
